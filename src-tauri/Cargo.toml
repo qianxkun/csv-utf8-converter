@@ -1,0 +1,39 @@
+[package]
+name = "csv-utf8-converter"
+version = "0.1.0"
+description = "桌面端: 批量将任意编码的 CSV/TXT 统一转换为 UTF-8 CSV 或 Parquet, 内置 DuckDB SQL 查询"
+authors = ["qianxkun"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.90"
+
+[lib]
+name = "csv_utf8_converter_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = [] }
+tauri-plugin-dialog = "2.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+encoding_rs = "0.8"
+chardetng = "1.0"
+rayon = "1.12"
+walkdir = "2"
+anyhow = "1"
+glob = "0.3"
+# duckdb: 最新 1.10506.0 (bundled)。其捆绑的 DuckDB API 版本 (v1.5.6) 必须与
+# tools/duckdb-extensions/v1.5.6/windows_amd64/ 下预置的 8 个扩展严格一致,
+# 否则 LOAD 会因版本校验失败 (见 sql.rs 的 EXT_VERSION)。若日后升级到更高的
+# DuckDB API 版本, 需重跑 src-tauri/tests/install_all.rs 重新下载对应扩展 (~365MB)。
+duckdb = { version = "1.10506", features = ["bundled"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

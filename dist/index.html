@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CSV UTF-8 转换器</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>CSV UTF-8 转换器</h1>
+    <span class="version">v0.1.0</span>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="convert">编码转换</button>
+    <button class="tab" data-tab="sql">SQL 查询</button>
+  </nav>
+
+  <main>
+    <!-- ========== 转换面板 ========== -->
+    <div class="tab-panel active" data-tab="convert">
+      <section class="paths">
+        <div class="field">
+          <label>输入目录</label>
+          <div class="path-row">
+            <input id="input-dir" readonly />
+            <button class="btn-pick" id="pick-input">选择...</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>输出目录 (源文件不会被修改, 输出扩展名随所选格式)</label>
+          <div class="path-row">
+            <input id="output-dir" readonly />
+            <button class="btn-pick" id="pick-output">选择...</button>
+          </div>
+        </div>
+
+        <div class="field preview">
+          <span id="preview">将扫描 .csv / .txt, 输出为 UTF-8 CSV</span>
+          <button class="btn-secondary" id="scan-btn" disabled>预览文件数</button>
+        </div>
+      </section>
+
+      <section class="options">
+        <div class="opt">
+          <label>输入类型</label>
+          <input id="input-types" type="text" value=".csv / .txt (固定)" readonly />
+        </div>
+        <div class="opt">
+          <label>输出格式</label>
+          <select id="output-format">
+            <option value="csv">UTF-8 CSV</option>
+            <option value="parquet">Parquet</option>
+          </select>
+        </div>
+        <div class="opt">
+          <label>并发数 (0=自动)</label>
+          <input id="jobs" type="number" value="0" min="0" max="64" />
+        </div>
+        <div class="opt check">
+          <label><input id="recursive" type="checkbox" checked /> 递归子目录</label>
+        </div>
+        <div class="opt check">
+          <label><input id="write-bom" type="checkbox" /> 输出 UTF-8 BOM</label>
+        </div>
+        <div class="opt check">
+          <label><input id="skip-utf8" type="checkbox" /> 跳过已是 UTF-8</label>
+        </div>
+        <div class="opt check">
+          <label><input id="overwrite" type="checkbox" /> 覆盖已存在</label>
+        </div>
+      </section>
+
+      <section class="actions">
+        <button id="convert-btn" class="btn-primary" disabled>开始转换</button>
+        <button id="cancel-btn" class="btn-danger" disabled>取消</button>
+        <span class="status" id="status">准备就绪</span>
+      </section>
+
+      <section class="progress-area">
+        <div class="bar">
+          <div id="progress-bar"></div>
+        </div>
+        <div class="metrics">
+          <div class="metric"><span class="label">成功</span><span class="val" id="m-success">0</span></div>
+          <div class="metric"><span class="label">失败</span><span class="val" id="m-failed">0</span></div>
+          <div class="metric"><span class="label">跳过</span><span class="val" id="m-skipped">0</span></div>
+          <div class="metric"><span class="label">吞吐</span><span class="val" id="m-throughput">--</span></div>
+          <div class="metric"><span class="label">已用</span><span class="val" id="m-elapsed">--</span></div>
+        </div>
+      </section>
+
+      <section class="log-section">
+        <div class="log-header">
+          <span>日志</span>
+          <button class="btn-clear" id="clear-log">清空</button>
+        </div>
+        <div class="log" id="log"></div>
+      </section>
+    </div>
+
+    <!-- ========== SQL 面板 ========== -->
+    <div class="tab-panel" data-tab="sql" hidden>
+      <section class="paths">
+        <div class="field">
+          <label>数据目录 (SQL 相对路径基准)</label>
+          <div class="path-row">
+            <input id="sql-data-dir" readonly />
+            <button class="btn-pick" id="pick-sql-data">选择...</button>
+            <button class="btn-secondary" id="sql-sync-output" title="同步为转换面板的输出目录">← 输出目录</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>转码缓存目录 (非 UTF-8 文件会转码为 <code>utf8_&lt;原文件名&gt;</code>; 留空则默认放在数据文件同目录)</label>
+          <div class="path-row">
+            <input id="sql-cache-dir" readonly placeholder="(默认) 数据文件同目录" />
+            <button class="btn-pick" id="pick-sql-cache">选择...</button>
+            <button class="btn-secondary" id="clear-sql-cache" title="清除自定义缓存目录, 恢复默认 (数据文件同目录)">恢复默认</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="sql-editor-section">
+        <div class="sql-editor-header">
+          <span>SQL (DuckDB 方言; 表名可用文件路径字符串, 如 <code>SELECT * FROM 'orders.csv'</code> 或 <code>'data.parquet'</code>)</span>
+          <span class="sql-hint">Ctrl+Enter 执行</span>
+        </div>
+        <textarea id="sql-editor" spellcheck="false" placeholder="-- 示例: 查询 orders.csv 中金额前 10
+SELECT *
+FROM 'orders.csv'
+WHERE amount > 100
+ORDER BY amount DESC
+LIMIT 10;"></textarea>
+        <div class="sql-toolbar">
+          <button id="sql-run-btn" class="btn-primary">执行</button>
+          <span class="sql-examples">
+            <button class="btn-secondary" data-example="basic">基础查询</button>
+            <button class="btn-secondary" data-example="groupby">分组统计</button>
+            <button class="btn-secondary" data-example="glob">多文件通配</button>
+            <button class="btn-secondary" data-example="multi">多表 JOIN</button>
+            <button class="btn-secondary" data-example="parquet">Parquet</button>
+            <button class="btn-secondary" data-example="parquetGlob">Parquet 通配</button>
+          </span>
+          <span class="sql-status" id="sql-status">就绪</span>
+        </div>
+      </section>
+
+      <section class="result-section">
+        <div class="result-header">
+          <span id="sql-result-meta"></span>
+          <span class="export-actions">
+            <label class="bom-toggle" title="CSV 带 UTF-8 BOM, Excel 打开中文不乱码">
+              <input id="export-bom" type="checkbox" /> BOM
+            </label>
+            <label class="bom-toggle" title="目标文件已存在时直接覆盖">
+              <input id="export-overwrite" type="checkbox" /> 覆盖
+            </label>
+            <button id="export-csv-btn" class="btn-secondary" disabled>导出 CSV</button>
+            <button id="export-parquet-btn" class="btn-secondary" disabled>导出 Parquet</button>
+          </span>
+        </div>
+        <div class="result-table-wrap">
+          <table id="sql-result-table">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+          <div class="result-empty" id="sql-result-empty">执行查询后, 结果将显示在这里</div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="main.js"></script>
+</body>
+</html>
