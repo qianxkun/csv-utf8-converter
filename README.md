@@ -2,10 +2,30 @@
 
 一个基于 **Tauri 2 + Rust** 的桌面工具，用于：
 
-1. **批量编码转换** —— 把任意编码的 **CSV / TXT** 文本文件统一转换为 **UTF-8 CSV 或 Parquet**；
+1. **批量编码转换** —— 转码前可逐个文件**预览原始编码与样例数据**，确认后再勾选，把任意编码的 **CSV / TXT** 文本文件统一转换为 **UTF-8 CSV 或 Parquet**；
 2. **SQL 查询** —— 内置 DuckDB，可直接对任意编码的 CSV / TSV / TXT / Parquet 执行 SQL，并导出 CSV / Parquet。
 
 前端为原生 HTML / CSS / JavaScript（无打包步骤），后端为 Rust。
+
+---
+
+## 界面预览
+
+### 编码转换
+
+转码前先预览：列出所有匹配文件，标注**原始编码**与**是否需转码**，展开即可看到**表头与 4 行样例数据**，据此决定勾选哪些文件。
+
+![编码转换页 —— 文件预览与按需勾选](docs/screenshots/01-encoding-conversion-preview.png)
+
+参数、进度与日志区：输出格式（UTF-8 CSV / Parquet）、并发数、递归子目录、BOM 等开关，以及成功 / 失败 / 跳过 / 吞吐 / 已用统计。
+
+![编码转换页 —— 转换参数、进度与日志](docs/screenshots/02-encoding-conversion-options.png)
+
+### SQL 查询
+
+DuckDB SQL 编辑器（`Ctrl+Enter` 执行）、常用查询预设按钮，以及结果表格预览与 CSV / Parquet 导出。
+
+![SQL 查询页 —— DuckDB 编辑器与结果导出](docs/screenshots/03-sql-query.png)
 
 ---
 
@@ -14,6 +34,11 @@
 ### 一、编码转换
 
 - **输入范围固定为 `.csv` / `.txt`**（大小写不敏感）；可勾选递归扫描输入目录，保留相对目录结构。
+- **转码前预览**（`preview.rs`）：先扫描并列出匹配到的文件，每个文件展示**原始编码**、大小、**是否需要转码**；展开后可查看**表头 + 4 行样例数据**（文件不足 4 行时按实际行数）、嗅探出的分隔符与列数，用来判断该文件是否真的需要转码。
+  - 只读取文件头部 **64 KB**，预览耗时与文件大小基本无关（4 GB 文件同样是毫秒级）。
+  - 最多展示 **30 列**、单元格文本截断到 **120 字符**（超宽表仅提示"仅显示前 30 列"）。
+  - 提供「**仅选需转码** / 全选 / 全不选 / 全部展开 / 全部折叠」批量操作。
+- **按勾选转换**：只对勾选的文件执行转换，**默认自动勾选"需转码"的文件**（已是 UTF-8 的不必重复处理）；未勾选的文件不会被处理。
 - **统一输出格式**：通过界面「输出格式」选择，所有文件一律输出为 **UTF-8 CSV** 或 **Parquet**（输出扩展名随之变为 `.csv` / `.parquet`，与输入扩展名无关）：
   - **UTF-8 CSV**：文本形态，可选写 UTF-8 BOM（Excel 打开中文不乱码）。
   - **Parquet**：经 DuckDB 把已转码的 UTF-8 CSV 整表列式落盘（`COPY ... (FORMAT PARQUET)`），类型信息得以保留。
@@ -35,7 +60,7 @@
 
 - 对任意编码的 CSV / TSV / TXT / PSV 直接执行 SQL：先自动探测编码，非 UTF-8 的转码为 UTF-8（已是 UTF-8 的直接读取，不转码），再交给 DuckDB 内置 CSV 解析器。
 - 支持 **Parquet**（自带编码，直接读取）。
-- 支持多文件通配、多表 JOIN、分组统计等 DuckDB 完整方言。
+- 支持多文件通配、多表 JOIN、分组统计等 DuckDB 完整方言；界面内置「基础查询 / 分组统计 / 多文件通配 / 多表 JOIN / Parquet / Parquet 通配」示例按钮，`Ctrl+Enter` 执行。
 - 结果表格预览（默认截断到 1000 行），可将结果**导出为 CSV（可选 BOM）或 Parquet**（导出时会重新全量执行 SQL，不受预览截断影响）。
 - 转码结果缓存为 `utf8_<原文件名>`，**默认放在数据文件所在目录**（如 `订单.csv` → `utf8_订单.csv`），也可在界面**手动指定统一的缓存目录**（此时按源文件路径哈希分子目录，避免同名冲突）；按源文件 `mtime` 判断是否过期，重复查询几乎零成本。**已是 UTF-8 的文件直接读取，不转码、不产生缓存。** 缓存不再写入系统临时目录。
 - **离线可用**：预置 8 个 DuckDB 扩展（`json` / `parquet` / `icu` / `httpfs` / `fts` / `encodings` / `excel` / `spatial`），断网也能加载。
@@ -63,6 +88,9 @@
 │   ├── index.html             # 前端页面（两个 Tab：编码转换 / SQL 查询）
 │   ├── main.js                # 前端逻辑（Tauri invoke + 事件监听）
 │   └── style.css              # 样式
+├── docs/
+│   └── screenshots/           # README 界面截图
+├── .gitattributes             # Git LFS 规则（*.duckdb_extension）
 ├── .gitignore                 # Git 忽略规则
 ├── LICENSE                    # MIT 许可证
 ├── README.md                  # 项目说明
@@ -74,12 +102,13 @@
     ├── icons/                 # 应用图标
     ├── gen/schemas/           # tauri-build 生成的 schema（自动生成）
     ├── tools/
-    │   └── duckdb-extensions/ # 预置 DuckDB 扩展二进制（离线 SQL 用）
+    │   └── duckdb-extensions/ # 预置 DuckDB 扩展二进制（Git LFS 管理，离线 SQL 用）
     ├── src/
     │   ├── main.rs            # 程序入口
     │   ├── lib.rs             # Tauri 命令注册 + 批量转换调度
     │   ├── converter.rs       # 流式编码转换
     │   ├── detector.rs        # 编码检测
+    │   ├── preview.rs         # 转码前文件预览（编码 / 表头 / 样例行）
     │   └── sql.rs             # DuckDB SQL 引擎 + 结果导出
     └── tests/                 # 集成测试
 ```
@@ -91,6 +120,7 @@
 - **Rust ≥ 1.90**（MSRV；建议 stable 工具链）。
 - **Windows**：需要 MSVC 工具链（`cl.exe`）。
 - **tauri CLI**（仅构建 / 开发时需要）：`cargo install tauri-cli --version "^2"`。
+- **Git LFS**（仅克隆仓库时需要，用于拉取 DuckDB 扩展二进制）：`git lfs install`。
 - 说明：`duckdb` 使用 `bundled` 构建，无需安装 `nasm`（详见 `src-tauri/Cargo.toml` 注释）。
 
 ---
@@ -118,6 +148,11 @@ cd src-tauri
 cargo tauri build
 ```
 
+> **MSI 打包语言**：`tauri.conf.json` 中设置了 `bundle.windows.wix.language = "zh-CN"`。
+> `productName` 含中文，而 WiX 默认 `en-US` 对应代码页 **1252（Latin-1）**，无法表示中文，会以
+> `LGHT0311` 报错并导致 `light.exe` 打包失败；`zh-CN` 对应代码页 **936**，可正常打包。
+> 注意 Tauri 内置模板只改代码页，**安装向导界面文案仍为英文**。
+
 ---
 
 ## 测试
@@ -129,14 +164,15 @@ cargo test
 
 主要集成测试：
 
-| 测试                                                  | 作用                           |
-| --------------------------------------------------- | ---------------------------- |
-| `offline_extensions.rs`                             | 验证 8 个 DuckDB 扩展可**离线**加载并可用 |
-| `sql_e2e.rs`                                        | SQL 查询端到端                    |
-| `parquet_query.rs` / `repro_parquet.rs`             | Parquet 读取 / 复现              |
-| `export_test.rs` / `export_demo.rs`                 | 导出 CSV / Parquet             |
-| `eval_drop_encodings.rs` / `eval_encodings_size.rs` | 编码检测评估                       |
-| `extension_probe.rs` / `install_all.rs`             | 扩展探测 / 下载辅助（需联网）             |
+| 测试                                                  | 作用                              |
+| --------------------------------------------------- | ------------------------------- |
+| `preview_files.rs`                                  | 文件预览端到端（真实 GBK 文件的编码识别 / 表头 / 样例行） |
+| `offline_extensions.rs`                             | 验证 8 个 DuckDB 扩展可**离线**加载并可用     |
+| `sql_e2e.rs`                                        | SQL 查询端到端                       |
+| `parquet_query.rs` / `repro_parquet.rs`             | Parquet 读取 / 复现                 |
+| `export_test.rs` / `export_demo.rs`                 | 导出 CSV / Parquet                |
+| `eval_drop_encodings.rs` / `eval_encodings_size.rs` | 编码检测评估                          |
+| `extension_probe.rs` / `install_all.rs`             | 扩展探测 / 下载辅助（需联网）                |
 
 ---
 
@@ -152,7 +188,8 @@ cargo test
 1. 运行 `cargo test --test install_all`（走 DuckDB 官方 `INSTALL`，需联网）；
 2. 从 `%USERPROFILE%\.duckdb\extensions\v1.5.6\windows_amd64\` 复制 `.duckdb_extension` 文件到 `src-tauri/tools/duckdb-extensions/v1.5.6/windows_amd64/`。
 
-> 注意：`tools/duckdb-extensions/` 约 365 MB，属于预下载的第三方二进制，可按需在 `.gitignore` 中排除。
+> **注意**：`tools/duckdb-extensions/` 约 365 MB，其中单个 `.duckdb_extension` 最大约 168 MB，超过 GitHub 单文件 100 MB 限制，
+> 因此由 **Git LFS** 托管（规则见 `.gitattributes`）。克隆后若扩展文件仍是 133 字节的指针文件，执行 `git lfs pull` 恢复真实二进制。
 
 ---
 
