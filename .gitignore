@@ -33,6 +33,9 @@ desktop.ini
 *.log
 logs/
 
+# ---------- WorkBuddy 工作目录（项目数据与记忆，勿提交） ----------
+.workbuddy-ai/
+
 # ---------- 测试数据（大文件，勿提交） ----------
 /test_bigfile.csv
 /testdata/
