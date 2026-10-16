@@ -1,14 +1,18 @@
 //! CSV UTF-8 转换器 - Tauri 2.0 后端
 //!
 //! 暴露给前端的命令:
+//! - `preview_files`: 逐文件预览 (原始编码 + 表头 + 前 N 行数据), 供用户勾选后再转换
 //! - `start_conversion`: 开始批量转换 (异步, 通过事件回报进度)
 //! - `cancel_conversion`: 取消正在进行的任务
-//! - `scan_files`: 预览待处理文件数
+//! - `scan_files`: 仅统计待处理文件数与总字节数
+//! - `run_sql` / `export_sql_result`: DuckDB 查询与结果导出
 
 pub mod converter;
 pub mod detector;
+pub mod preview;
 pub mod sql;
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -183,6 +187,36 @@ async fn scan_files(input_dir: String, recursive: bool) -> Result<ScanResult, St
     })
 }
 
+/// 逐文件预览: 返回原始编码 + 分隔符 + 表头 + 前 N 行数据。
+///
+/// 前端据此判断哪些文件需要转码, 勾选后再调用 `start_conversion`。
+#[tauri::command]
+async fn preview_files(
+    input_dir: String,
+    recursive: bool,
+    sample_rows: Option<usize>,
+    probe_size: Option<usize>,
+) -> Result<preview::PreviewResult, String> {
+    let input = PathBuf::from(&input_dir);
+    if !input.is_dir() {
+        return Err(format!("输入路径不存在或不是目录: {}", input_dir));
+    }
+    let rows = sample_rows.unwrap_or(5).clamp(1, 20);
+    let probe = probe_size.unwrap_or(65536);
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let files = collect_files(&input, recursive).map_err(|e| format!("扫描失败: {}", e))?;
+        Ok(preview::build(&input, files, rows, probe))
+    })
+    .await
+    .map_err(|e| format!("任务执行失败: {e}"))?
+}
+
+/// 开始批量转换。
+///
+/// `files` 为前端勾选的文件绝对路径列表:
+/// - `Some(_)` → 只处理勾选的文件 (空列表 = 不处理任何文件)
+/// - `None`    → 未传该参数, 保持旧行为: 处理目录下全部可转换文件
 #[tauri::command]
 async fn start_conversion(
     app: AppHandle,
@@ -190,6 +224,7 @@ async fn start_conversion(
     input_dir: String,
     output_dir: String,
     options: ConversionOptions,
+    files: Option<Vec<String>>,
 ) -> Result<(), String> {
     // 防重入
     if state.is_running.swap(true, Ordering::SeqCst) {
@@ -214,12 +249,32 @@ async fn start_conversion(
     // 收集文件 (仅 .csv / .txt)
     let recursive = options.recursive.unwrap_or(true);
 
-    let files = match collect_files(&input, recursive) {
+    let discovered = match collect_files(&input, recursive) {
         Ok(f) => f,
         Err(e) => {
             state.is_running.store(false, Ordering::SeqCst);
             return Err(format!("扫描失败: {}", e));
         }
+    };
+
+    // 勾选列表:
+    // - `Some(_)` → 只处理勾选的文件 (空列表 = 不处理任何文件)
+    // - `None`    → 未传该参数, 保持旧行为: 处理目录下全部可转换文件
+    //
+    // 以「重新扫描得到的文件」为基准做交集, 而不是直接使用前端传来的路径,
+    // 这样即使前端传入目录外的路径也不会被处理。
+    let files: Vec<PathBuf> = match files {
+        Some(selected) => {
+            let wanted: HashSet<PathBuf> = selected
+                .iter()
+                .map(|s| canonical_or_raw(Path::new(s)))
+                .collect();
+            discovered
+                .into_iter()
+                .filter(|p| wanted.contains(&canonical_or_raw(p)))
+                .collect()
+        }
+        None => discovered,
     };
 
     let total = files.len();
@@ -532,6 +587,14 @@ fn collect_files(input: &Path, recursive: bool) -> anyhow::Result<Vec<PathBuf>> 
     Ok(files)
 }
 
+/// 规范化路径以便比较; 失败时退回原路径 (不阻断流程)。
+///
+/// 前端传来的路径与扫描得到的路径可能一个已规范化、一个没有,
+/// 统一处理后才能可靠求交集。
+fn canonical_or_raw(p: &Path) -> PathBuf {
+    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
 /// 计算输出路径: 保留相对目录结构, 扩展名统一替换为所选输出格式。
 fn compute_output_path(
     input: &Path,
@@ -665,6 +728,7 @@ pub fn run() {
             start_conversion,
             cancel_conversion,
             scan_files,
+            preview_files,
             run_sql,
             export_sql_result,
         ])

@@ -64,6 +64,24 @@ where
     Err(last_err.unwrap_or_else(|| anyhow::anyhow!("未知错误")))
 }
 
+/// 检测结果 → encoding_rs 编码。
+///
+/// 转换与预览共用同一份映射, 避免两处各自维护而漂移。
+/// `Unsupported` 返回 `None` (调用方决定如何报错)。
+pub fn encoding_of(detected: DetectedEncoding) -> Option<&'static Encoding> {
+    Some(match detected {
+        DetectedEncoding::Utf8 | DetectedEncoding::Utf8Bom => UTF_8,
+        DetectedEncoding::Gb18030 => GB18030,
+        DetectedEncoding::Big5 => BIG5,
+        DetectedEncoding::ShiftJis => SHIFT_JIS,
+        DetectedEncoding::EucKr => EUC_KR,
+        DetectedEncoding::Windows1252 => WINDOWS_1252,
+        DetectedEncoding::Utf16Le => UTF_16LE,
+        DetectedEncoding::Utf16Be => UTF_16BE,
+        DetectedEncoding::Unsupported => return None,
+    })
+}
+
 fn try_convert(input: &Path, output: &Path, opts: &ConvertOptions) -> Result<ConvertResult> {
     // 1. 确保输出目录存在
     if let Some(parent) = output.parent() {
@@ -100,22 +118,12 @@ fn try_convert(input: &Path, output: &Path, opts: &ConvertOptions) -> Result<Con
     }
 
     // 4. 选编码
-    let src_enc: &'static Encoding = match detected {
-        DetectedEncoding::Utf8 | DetectedEncoding::Utf8Bom => UTF_8,
-        DetectedEncoding::Gb18030 => GB18030,
-        DetectedEncoding::Big5 => BIG5,
-        DetectedEncoding::ShiftJis => SHIFT_JIS,
-        DetectedEncoding::EucKr => EUC_KR,
-        DetectedEncoding::Windows1252 => WINDOWS_1252,
-        DetectedEncoding::Utf16Le => UTF_16LE,
-        DetectedEncoding::Utf16Be => UTF_16BE,
-        DetectedEncoding::Unsupported => {
-            return Err(anyhow::anyhow!(
-                "不支持的编码 {}, 请扩展 converter.rs 映射",
-                detected.name()
-            ));
-        }
-    };
+    let src_enc: &'static Encoding = encoding_of(detected).ok_or_else(|| {
+        anyhow::anyhow!(
+            "不支持的编码 {}, 请扩展 converter.rs 映射",
+            detected.name()
+        )
+    })?;
 
     // 5. 转换到临时文件
     //    tmp 与【最终目标】同目录: 输出模式在输出目录 (不写源目录), in-place 在原目录

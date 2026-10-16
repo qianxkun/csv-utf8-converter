@@ -95,16 +95,189 @@ select:focus {
   border-color: #4ec9b0;
 }
 
-.field.preview {
+/* ============== 文件预览 (编码转换) ============== */
+
+.preview-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preview-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   background: #1a1d23;
   padding: 8px 12px;
   border-radius: 4px;
   border: 1px solid #2a3038;
   font-size: 12px;
   color: #888;
+}
+
+.preview-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.preview-toolbar .btn-secondary {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+.pv-item {
+  /* 关键: 列表是纵向 flex 容器, 条目默认 flex-shrink:1。
+     内容超过 max-height 时条目会被压扁, 再被 overflow:hidden 裁掉表头与数据行。
+     置 0 让条目保持自然高度, 由列表自身滚动。 */
+  flex-shrink: 0;
+  border: 1px solid #2a3038;
+  border-radius: 4px;
+  background: #1a1d23;
+  overflow: hidden;
+}
+
+.pv-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+}
+
+.pv-head input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: #4ec9b0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.pv-name {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  color: #d4d4d4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv-size {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #6a6a6a;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.pv-enc {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: #2a3038;
+  color: #9cdcfe;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.pv-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+.pv-tag.need { background: #3a2a12; color: #dcdcaa; }
+.pv-tag.utf8 { background: #1d3a2f; color: #4ec9b0; }
+.pv-tag.err  { background: #3a1d1d; color: #ff6b6b; }
+
+.pv-toggle {
+  flex-shrink: 0;
+  background: transparent;
+  color: #6c9eff;
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid #3a3f48;
+}
+
+.pv-toggle:hover {
+  background: #2a3038;
+}
+
+.pv-detail {
+  border-top: 1px solid #2a3038;
+  background: #0d0f12;
+  padding: 8px 10px;
+}
+
+.pv-detail[hidden] {
+  display: none;
+}
+
+.pv-meta {
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 6px;
+}
+
+.pv-table-wrap {
+  /* 每个文件的表格自带滚动条: 宽表可横向滑, 行多时纵向滑, 表头吸顶 */
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid #2a3038;
+  border-radius: 3px;
+}
+
+.pv-table {
+  border-collapse: collapse;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+}
+
+.pv-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  padding: 4px 10px;
+  color: #9cdcfe;
+  background: #1a1d23;
+  /* 表头吸顶时用 inset 阴影代替 border-bottom:
+     border-collapse: collapse 下边框属于折叠边框模型, 会随内容一起滚走,
+     吸顶后分隔线消失。box-shadow 跟随元素本身, 吸顶时始终可见。 */
+  box-shadow: inset 0 -1px 0 #2a3038;
+  white-space: nowrap;
+}
+
+.pv-table td {
+  padding: 3px 10px;
+  color: #d4d4d4;
+  border-bottom: 1px solid #171a1f;
+  white-space: nowrap;
+}
+
+.pv-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* 单元格文本超长时省略 (单元格本身无法可靠应用 max-width) */
+.pv-cell {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 button {

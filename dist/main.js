@@ -7,6 +7,10 @@ const $ = (id) => document.getElementById(id);
 const state = {
   inputDir: '',
   outputDir: '',
+  // 文件预览: previews = 后端返回的逐文件信息; selected = 勾选的文件绝对路径
+  previews: [],
+  selected: new Set(),
+  previewLoaded: false,
   sqlDir: '',
   // 转码缓存目录; 空串 = 默认 (数据文件同目录), 非空 = 用户指定的统一缓存位置
   sqlCacheDir: '',
@@ -46,6 +50,8 @@ async function pickInput() {
   if (result) {
     state.inputDir = result;
     $('input-dir').value = result;
+    // 换了输入目录, 旧预览全部作废
+    clearPreviews();
     updateButtons();
   }
 }
@@ -61,22 +67,250 @@ async function pickOutput() {
   }
 }
 
-async function scanFiles() {
+// ============== 文件预览 (原始编码 + 表头 + 样例行) ==============
+
+/** 每个文件预览的数据行数 */
+const PREVIEW_ROWS = 5;
+
+/**
+ * 读取输入目录下每个文件的原始编码、表头与前 5 行数据。
+ * 用户据此判断哪些文件需要转码, 勾选后再转换。
+ */
+async function loadPreviews() {
   if (!state.inputDir) return;
-  $('preview').textContent = '扫描中...';
+
+  $('preview').textContent = '正在读取文件预览...';
   $('scan-btn').disabled = true;
+  $('preview-toolbar').hidden = true;
+  $('preview-list').hidden = true;
+
   try {
-    const r = await invoke('scan_files', {
+    const r = await invoke('preview_files', {
       inputDir: state.inputDir,
       recursive: $('recursive').checked,
+      sampleRows: PREVIEW_ROWS,
     });
-    state.total = r.count;
-    $('preview').textContent = `匹配文件: ${r.count} 个, 共 ${formatBytes(r.totalBytes)}`;
+    state.previews = r.files || [];
+    state.previewLoaded = true;
+    // 默认只勾选「需要转码」的文件 —— 已是 UTF-8 的不必重复处理
+    state.selected = new Set(
+      state.previews.filter(f => f.needsTranscode).map(f => f.path)
+    );
+    renderPreviewList();
   } catch (e) {
-    $('preview').textContent = `扫描失败: ${e}`;
+    state.previews = [];
+    state.previewLoaded = false;
+    state.selected = new Set();
+    $('preview').textContent = `预览失败: ${e}`;
   } finally {
-    $('scan-btn').disabled = !state.inputDir || state.isRunning;
+    updateButtons();
   }
+}
+
+/** 输入目录 / 递归开关变化后, 旧预览作废 */
+function clearPreviews() {
+  state.previews = [];
+  state.selected = new Set();
+  state.previewLoaded = false;
+  $('preview-list').innerHTML = '';
+  $('preview-list').hidden = true;
+  $('preview-toolbar').hidden = true;
+  refreshPreviewSummary();
+  updateButtons();
+}
+
+/** 顶部摘要: 未预览时给提示, 预览后给出统计与已勾选数 */
+function refreshPreviewSummary() {
+  const el = $('preview');
+  if (!state.previewLoaded) {
+    el.textContent = `将扫描 .csv / .txt, 输出为 ${formatLabel()}`;
+    return;
+  }
+  const totalBytes = state.previews.reduce((sum, f) => sum + f.size, 0);
+  const need = state.previews.filter(f => f.needsTranscode).length;
+  el.textContent =
+    `匹配 ${state.previews.length} 个文件 · 需转码 ${need} 个 · ` +
+    `共 ${formatBytes(totalBytes)} · 已勾选 ${state.selected.size} 个`;
+}
+
+const DELIM_LABELS = { ',': ', (逗号)', '\t': '\\t (制表符)', ';': '; (分号)', '|': '| (竖线)' };
+
+function delimLabel(d) {
+  return DELIM_LABELS[d] || d || '?';
+}
+
+function renderPreviewList() {
+  const list = $('preview-list');
+  list.innerHTML = '';
+
+  if (!state.previews.length) {
+    list.hidden = true;
+    $('preview-toolbar').hidden = true;
+    refreshPreviewSummary();
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  for (const f of state.previews) frag.appendChild(buildPreviewItem(f));
+  list.appendChild(frag);
+
+  list.hidden = false;
+  $('preview-toolbar').hidden = false;
+  refreshPreviewSummary();
+}
+
+/** 单元格文本包一层 span, 才能可靠地做省略号截断 (td/th 自身不支持 max-width) */
+function cellEl(tag, text) {
+  const el = document.createElement(tag);
+  const span = document.createElement('span');
+  span.className = 'pv-cell';
+  span.textContent = text;
+  el.appendChild(span);
+  return el;
+}
+
+/** 展开区: 元信息 + 表头与样例行的小表格 */
+function buildPreviewDetail(detail, f) {
+  const meta = document.createElement('div');
+  meta.className = 'pv-meta';
+
+  if (f.error) {
+    meta.textContent = `读取失败: ${f.error}`;
+    detail.appendChild(meta);
+    return;
+  }
+  if (!f.headers.length) {
+    meta.textContent = '空文件, 或没有可解析的表头';
+    detail.appendChild(meta);
+    return;
+  }
+
+  const parts = [
+    `分隔符: ${delimLabel(f.delimiter)}`,
+    `表头 ${f.headers.length} 列`,
+    `预览 ${f.rows.length} 行`,
+  ];
+  if (f.columnsTruncated) parts.push(`仅显示前 ${f.headers.length} 列`);
+  meta.textContent = parts.join(' · ');
+  detail.appendChild(meta);
+
+  const table = document.createElement('table');
+  table.className = 'pv-table';
+
+  const trh = document.createElement('tr');
+  for (const h of f.headers) trh.appendChild(cellEl('th', h));
+  const thead = document.createElement('thead');
+  thead.appendChild(trh);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  for (const row of f.rows) {
+    const tr = document.createElement('tr');
+    for (let i = 0; i < f.headers.length; i++) {
+      tr.appendChild(cellEl('td', row[i] ?? ''));
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'pv-table-wrap';
+  wrap.appendChild(table);
+  detail.appendChild(wrap);
+}
+
+/** 单个文件条目: 勾选框 + 文件名 + 大小 + 原始编码 + 状态, 展开后是表头与样例行 */
+function buildPreviewItem(f) {
+  const item = document.createElement('div');
+  item.className = 'pv-item';
+
+  const head = document.createElement('div');
+  head.className = 'pv-head';
+
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = state.selected.has(f.path);
+  cb.dataset.path = f.path;
+  cb.title = f.path;
+  cb.addEventListener('change', () => {
+    if (cb.checked) state.selected.add(f.path);
+    else state.selected.delete(f.path);
+    refreshPreviewSummary();
+    updateButtons();
+  });
+  head.appendChild(cb);
+
+  const name = document.createElement('span');
+  name.className = 'pv-name';
+  name.textContent = f.relativePath;
+  name.title = f.path;
+  head.appendChild(name);
+
+  const size = document.createElement('span');
+  size.className = 'pv-size';
+  size.textContent = formatBytes(f.size);
+  head.appendChild(size);
+
+  const enc = document.createElement('span');
+  enc.className = 'pv-enc';
+  enc.textContent = f.encoding;
+  head.appendChild(enc);
+
+  const tag = document.createElement('span');
+  tag.className = 'pv-tag ' + (f.error ? 'err' : (f.needsTranscode ? 'need' : 'utf8'));
+  tag.textContent = f.error ? '读取失败' : (f.needsTranscode ? '需转码' : '已是 UTF-8');
+  head.appendChild(tag);
+
+  const toggle = document.createElement('button');
+  toggle.className = 'pv-toggle';
+  toggle.textContent = '折叠';
+  head.appendChild(toggle);
+
+  item.appendChild(head);
+
+  const detail = document.createElement('div');
+  detail.className = 'pv-detail';
+  buildPreviewDetail(detail, f);
+  item.appendChild(detail);
+
+  toggle.addEventListener('click', () => {
+    detail.hidden = !detail.hidden;
+    toggle.textContent = detail.hidden ? '展开' : '折叠';
+  });
+
+  return item;
+}
+
+/** 批量勾选: all | none | need | utf8 */
+function selectFiles(which) {
+  const pickers = {
+    all: () => state.previews,
+    none: () => [],
+    need: () => state.previews.filter(f => f.needsTranscode),
+    utf8: () => state.previews.filter(f => !f.needsTranscode),
+  };
+  const pick = pickers[which];
+  if (!pick) return;
+
+  state.selected = new Set(pick().map(f => f.path));
+
+  // 同步已渲染的复选框状态
+  document
+    .querySelectorAll('#preview-list .pv-head input[type="checkbox"]')
+    .forEach(cb => { cb.checked = state.selected.has(cb.dataset.path); });
+
+  refreshPreviewSummary();
+  updateButtons();
+}
+
+/** 全部展开 / 全部折叠 */
+function setAllExpanded(expanded) {
+  document.querySelectorAll('#preview-list .pv-item').forEach(item => {
+    const detail = item.querySelector('.pv-detail');
+    const toggle = item.querySelector('.pv-toggle');
+    if (detail) detail.hidden = !expanded;
+    if (toggle) toggle.textContent = expanded ? '折叠' : '展开';
+  });
 }
 
 // ============== 输出格式 ==============
@@ -91,8 +325,8 @@ function formatLabel(fmt = currentFormat()) {
 
 /** 输入固定为 .csv / .txt; 输出统一为所选格式 */
 function resetPreview() {
-  $('preview').textContent = `将扫描 .csv / .txt, 输出为 ${formatLabel()}`;
   state.total = 0;
+  refreshPreviewSummary();
 }
 
 /**
@@ -135,6 +369,14 @@ async function startConversion() {
     setStatus('输入与输出不能是同一路径', 'error');
     return;
   }
+  if (!state.previewLoaded) {
+    setStatus('请先点「预览文件」确认编码并勾选要转换的文件', 'warn');
+    return;
+  }
+  if (state.selected.size === 0) {
+    setStatus('请至少勾选一个要转换的文件', 'warn');
+    return;
+  }
 
   resetMetrics();
   state.isRunning = true;
@@ -147,6 +389,8 @@ async function startConversion() {
       inputDir: state.inputDir,
       outputDir: state.outputDir,
       options: buildOptions(),
+      // 只转换勾选的文件
+      files: [...state.selected],
     });
   } catch (e) {
     appendLog(`[错误] ${e}`, 'failed');
@@ -168,8 +412,13 @@ async function cancelConversion() {
 // ============== UI 更新 ==============
 
 function updateButtons() {
-  const ready = state.inputDir && state.outputDir && !state.isRunning;
-  $('convert-btn').disabled = !ready;
+  const dirsReady = state.inputDir && state.outputDir && !state.isRunning;
+  // 转换前必须先预览并勾选: 未预览 / 未勾选都不允许开始
+  const canConvert = dirsReady && state.previewLoaded && state.selected.size > 0;
+  $('convert-btn').disabled = !canConvert;
+  $('convert-btn').title = !state.previewLoaded
+    ? '请先点「预览文件」'
+    : (state.selected.size === 0 ? '请至少勾选一个文件' : '');
   $('cancel-btn').disabled = !state.isRunning;
   $('scan-btn').disabled = !state.inputDir || state.isRunning;
   $('sql-run-btn').disabled = !state.sqlDir || state.sqlRunning;
@@ -547,7 +796,12 @@ $('pick-input').addEventListener('click', pickInput);
 $('pick-output').addEventListener('click', pickOutput);
 $('convert-btn').addEventListener('click', startConversion);
 $('cancel-btn').addEventListener('click', cancelConversion);
-$('scan-btn').addEventListener('click', scanFiles);
+$('scan-btn').addEventListener('click', loadPreviews);
+$('sel-need').addEventListener('click', () => selectFiles('need'));
+$('sel-all').addEventListener('click', () => selectFiles('all'));
+$('sel-none').addEventListener('click', () => selectFiles('none'));
+$('sel-expand').addEventListener('click', () => setAllExpanded(true));
+$('sel-collapse').addEventListener('click', () => setAllExpanded(false));
 $('clear-log').addEventListener('click', () => { $('log').innerHTML = ''; });
 
 $('pick-sql-data').addEventListener('click', pickSqlData);
@@ -559,7 +813,8 @@ $('export-csv-btn').addEventListener('click', () => exportResult('csv'));
 $('export-parquet-btn').addEventListener('click', () => exportResult('parquet'));
 
 $('output-format').addEventListener('change', applyFormatUI);
-$('recursive').addEventListener('change', resetPreview);
+// 递归开关会影响扫描结果, 旧预览作废
+$('recursive').addEventListener('change', clearPreviews);
 
 setStatus('准备就绪 - 请选择输入与输出目录');
 // 初始化输出格式相关 UI (禁用项 / 预览文案)

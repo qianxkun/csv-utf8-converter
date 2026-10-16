@@ -37,10 +37,23 @@
           </div>
         </div>
 
-        <div class="field preview">
+      </section>
+
+      <section class="preview-panel">
+        <div class="preview-head">
           <span id="preview">将扫描 .csv / .txt, 输出为 UTF-8 CSV</span>
-          <button class="btn-secondary" id="scan-btn" disabled>预览文件数</button>
+          <button class="btn-secondary" id="scan-btn" disabled>预览文件</button>
         </div>
+
+        <div class="preview-toolbar" id="preview-toolbar" hidden>
+          <button class="btn-secondary" id="sel-need" title="仅勾选检测为非 UTF-8 的文件">仅选需转码</button>
+          <button class="btn-secondary" id="sel-all">全选</button>
+          <button class="btn-secondary" id="sel-none">全不选</button>
+          <button class="btn-secondary" id="sel-expand">全部展开</button>
+          <button class="btn-secondary" id="sel-collapse">全部折叠</button>
+        </div>
+
+        <div class="preview-list" id="preview-list" hidden></div>
       </section>
 
       <section class="options">
