@@ -12,7 +12,7 @@ pub mod detector;
 pub mod preview;
 pub mod sql;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -24,6 +24,7 @@ use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use walkdir::WalkDir;
 
 use converter::{convert, ConvertOptions};
+use detector::DetectedEncoding;
 
 // ============ 输入 / 输出约束 ============
 
@@ -190,12 +191,19 @@ async fn scan_files(input_dir: String, recursive: bool) -> Result<ScanResult, St
 /// 逐文件预览: 返回原始编码 + 分隔符 + 表头 + 前 N 行数据。
 ///
 /// 前端据此判断哪些文件需要转码, 勾选后再调用 `start_conversion`。
+///
+/// - `encodings`: 用户手动指定的编码 `{ 绝对路径: 编码 id }`。
+///   命中时该文件跳过自动探测结果, 用于修正 chardetng 的误判。
+/// - `files`: 只预览指定的文件 (前端改动单个文件的编码后局部刷新用);
+///   缺省则扫描整个目录。
 #[tauri::command]
 async fn preview_files(
     input_dir: String,
     recursive: bool,
     sample_rows: Option<usize>,
     probe_size: Option<usize>,
+    encodings: Option<HashMap<String, String>>,
+    files: Option<Vec<String>>,
 ) -> Result<preview::PreviewResult, String> {
     let input = PathBuf::from(&input_dir);
     if !input.is_dir() {
@@ -203,13 +211,45 @@ async fn preview_files(
     }
     let rows = sample_rows.unwrap_or(5).clamp(1, 20);
     let probe = probe_size.unwrap_or(65536);
+    let overrides = parse_encoding_overrides(encodings);
 
     tauri::async_runtime::spawn_blocking(move || {
-        let files = collect_files(&input, recursive).map_err(|e| format!("扫描失败: {}", e))?;
-        Ok(preview::build(&input, files, rows, probe))
+        let discovered = collect_files(&input, recursive).map_err(|e| format!("扫描失败: {}", e))?;
+        let files = match files {
+            Some(selected) => {
+                let wanted: HashSet<PathBuf> = selected
+                    .iter()
+                    .map(|s| canonical_or_raw(Path::new(s)))
+                    .collect();
+                discovered
+                    .into_iter()
+                    .filter(|p| wanted.contains(&canonical_or_raw(p)))
+                    .collect()
+            }
+            None => discovered,
+        };
+        Ok(preview::build(&input, files, rows, probe, &overrides))
     })
     .await
     .map_err(|e| format!("任务执行失败: {e}"))?
+}
+
+/// 把前端传来的 `{ 路径: 编码 id }` 解析成内部映射。
+///
+/// 路径统一走 `canonical_or_raw`, 与扫描结果对齐; 无法识别的编码 id 直接忽略
+/// (宁可回退自动探测, 也不要让一个坏值让整个预览失败)。
+fn parse_encoding_overrides(
+    raw: Option<HashMap<String, String>>,
+) -> HashMap<PathBuf, DetectedEncoding> {
+    let mut out = HashMap::new();
+    if let Some(map) = raw {
+        for (path, id) in map {
+            if let Some(enc) = DetectedEncoding::from_id(&id) {
+                out.insert(canonical_or_raw(Path::new(&path)), enc);
+            }
+        }
+    }
+    out
 }
 
 /// 开始批量转换。
@@ -225,6 +265,7 @@ async fn start_conversion(
     output_dir: String,
     options: ConversionOptions,
     files: Option<Vec<String>>,
+    encodings: Option<HashMap<String, String>>,
 ) -> Result<(), String> {
     // 防重入
     if state.is_running.swap(true, Ordering::SeqCst) {
@@ -319,7 +360,10 @@ async fn start_conversion(
         write_bom: !is_parquet && options.write_bom.unwrap_or(false),
         retries: options.retries.unwrap_or(2),
         skip_utf8: !is_parquet && options.skip_utf8.unwrap_or(false),
+        // 逐文件覆盖, 见 run_conversion 内部
+        forced_encoding: None,
     };
+    let overrides = parse_encoding_overrides(encodings);
     let overwrite = options.overwrite.unwrap_or(false);
     let jobs = options.jobs.unwrap_or(0);
 
@@ -342,6 +386,7 @@ async fn start_conversion(
             input,
             output,
             convert_opts,
+            overrides,
             format,
             overwrite,
             cancel_flag,
@@ -369,6 +414,7 @@ fn run_conversion(
     input_root: PathBuf,
     output_root: PathBuf,
     opts: ConvertOptions,
+    overrides: HashMap<PathBuf, DetectedEncoding>,
     format: OutputFormat,
     overwrite: bool,
     cancel_flag: Arc<AtomicBool>,
@@ -425,10 +471,14 @@ fn run_conversion(
             }
 
             // 执行转换 (统一输出为 UTF-8 CSV 或 Parquet)
+            // 用户在该文件上手动指定过编码时, 覆盖自动探测结果,
+            // 保证「预览看到的编码」与「实际按什么编码转」一致。
+            let mut file_opts = opts.clone();
+            file_opts.forced_encoding = overrides.get(&canonical_or_raw(input_path)).copied();
             let outcome = match format {
-                OutputFormat::Csv => convert(input_path, &output_path, &opts),
+                OutputFormat::Csv => convert(input_path, &output_path, &file_opts),
                 OutputFormat::Parquet => {
-                    convert_to_parquet(input_path, &output_path, &opts, overwrite)
+                    convert_to_parquet(input_path, &output_path, &file_opts, overwrite)
                 }
             };
             match outcome {
@@ -630,6 +680,8 @@ fn convert_to_parquet(
         write_bom: false,
         retries: opts.retries,
         skip_utf8: false,
+        // 用户手动指定的编码必须一路传到转码阶段, 否则预览与产物会不一致
+        forced_encoding: opts.forced_encoding,
     };
 
     let transcoded = match convert(input, &tmp_csv, &csv_opts) {
@@ -724,6 +776,24 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
+        // DuckDB 扩展目录必须在任何 SQL 调用之前确定。
+        // 打包后位于 resource_dir/duckdb-extensions, 开发期回退到 src-tauri/tools/...
+        .setup(|app| {
+            let mut candidates = Vec::new();
+            if let Ok(res) = app.path().resource_dir() {
+                // 数组形式 resources 会保留相对结构 → $RESOURCE/tools/duckdb-extensions
+                candidates.push(res.join("tools").join("duckdb-extensions"));
+                // 兼容映射形式 (若日后改成 resources: { "tools/duckdb-extensions/": "duckdb-extensions/" })
+                candidates.push(res.join("duckdb-extensions"));
+            }
+            candidates.push(
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("tools")
+                    .join("duckdb-extensions"),
+            );
+            sql::set_ext_dir(sql::resolve_ext_dir(candidates));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             start_conversion,
             cancel_conversion,

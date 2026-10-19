@@ -5,7 +5,7 @@
 //! - 临时文件 + 原子 rename, 单文件失败不影响其他文件
 //! - 源文件永不被修改 (始终输出到独立路径)
 
-use crate::detector::{detect, DetectedEncoding};
+use crate::detector::{open_with, DetectedEncoding};
 use anyhow::{Context, Result};
 use encoding_rs::{
     CoderResult, Encoding, BIG5, EUC_KR, GB18030, SHIFT_JIS, UTF_8, UTF_16BE, UTF_16LE,
@@ -28,6 +28,11 @@ pub struct ConvertOptions {
     pub retries: usize,
     /// 已是 UTF-8 的文件跳过不处理
     pub skip_utf8: bool,
+    /// 用户手动指定的源编码; `None` = 按 `detector` 自动探测。
+    ///
+    /// 预览面板的「原始编码」下拉框会把用户的选择传到这里,
+    /// 保证「预览看到什么编码」与「实际按什么编码转」完全一致。
+    pub forced_encoding: Option<DetectedEncoding>,
 }
 
 #[derive(Debug, Clone)]
@@ -91,14 +96,13 @@ fn try_convert(input: &Path, output: &Path, opts: &ConvertOptions) -> Result<Con
         }
     }
 
-    // 2. 检测编码 (顺带得到 seek 回 0 的句柄)
-    let (detected, src_file) = detect(input, opts.probe_size)?;
+    // 2. 检测编码 (顺带得到 seek 回 0 的句柄); 用户手动指定时跳过探测
+    let (detected, src_file) =
+        open_with(input, opts.probe_size, opts.forced_encoding)?;
     let bytes_in = src_file.metadata()?.len();
 
     // 3. UTF-8 跳过: 原样复制到输出目录 (保证输出目录文件完整), 计为 skipped
-    if opts.skip_utf8
-        && matches!(detected, DetectedEncoding::Utf8 | DetectedEncoding::Utf8Bom)
-    {
+    if opts.skip_utf8 && detected.is_utf8() {
         drop(src_file);
         if input != output {
             std::fs::copy(input, output).with_context(|| {

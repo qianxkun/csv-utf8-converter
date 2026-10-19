@@ -11,6 +11,8 @@ const state = {
   previews: [],
   selected: new Set(),
   previewLoaded: false,
+  // 用户手动指定的编码: { 文件绝对路径: 编码 id }, 空对象 = 全部自动探测
+  encodings: {},
   sqlDir: '',
   // 转码缓存目录; 空串 = 默认 (数据文件同目录), 非空 = 用户指定的统一缓存位置
   sqlCacheDir: '',
@@ -89,6 +91,7 @@ async function loadPreviews() {
       inputDir: state.inputDir,
       recursive: $('recursive').checked,
       sampleRows: PREVIEW_ROWS,
+      encodings: state.encodings,
     });
     state.previews = r.files || [];
     state.previewLoaded = true;
@@ -112,6 +115,8 @@ function clearPreviews() {
   state.previews = [];
   state.selected = new Set();
   state.previewLoaded = false;
+  // 编码覆盖是按绝对路径记录的, 换目录后必须清空, 否则会串到同名文件上
+  state.encodings = {};
   $('preview-list').innerHTML = '';
   $('preview-list').hidden = true;
   $('preview-toolbar').hidden = true;
@@ -219,10 +224,102 @@ function buildPreviewDetail(detail, f) {
   detail.appendChild(wrap);
 }
 
+/** 可手动指定的编码列表 (id 必须与后端 DetectedEncoding::id() 一致) */
+const ENCODING_CHOICES = [
+  ['utf8', 'UTF-8'],
+  ['utf8bom', 'UTF-8 (BOM)'],
+  ['gb18030', 'GB18030'],
+  ['big5', 'Big5'],
+  ['shift_jis', 'Shift_JIS'],
+  ['euc_kr', 'EUC-KR'],
+  ['windows1252', 'Windows-1252'],
+  ['utf16le', 'UTF-16 LE'],
+  ['utf16be', 'UTF-16 BE'],
+];
+
+/**
+ * 原始编码下拉框。
+ *
+ * 默认「自动」= 走后端探测器; 用户选具体编码则覆盖探测结果。
+ * 自动探测对短文件、混合编码文件并不可靠, 这是唯一的纠正入口。
+ */
+function buildEncodingSelect(f) {
+  const sel = document.createElement('select');
+  sel.className = 'pv-enc' + (f.overridden ? ' overridden' : '');
+  sel.title = f.overridden
+    ? `已手动指定为 ${f.encoding}; 自动探测结果是 ${f.encodingAuto}`
+    : `原始编码 (自动探测); 识别有误时可手动指定`;
+
+  const auto = document.createElement('option');
+  auto.value = '';
+  auto.textContent = `自动 (${f.encodingAuto})`;
+  sel.appendChild(auto);
+
+  for (const [id, label] of ENCODING_CHOICES) {
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = label;
+    sel.appendChild(opt);
+  }
+  sel.value = f.overridden ? f.encodingId : '';
+
+  sel.addEventListener('click', (e) => e.stopPropagation());
+  sel.addEventListener('change', () => {
+    if (sel.value) state.encodings[f.path] = sel.value;
+    else delete state.encodings[f.path];
+    refreshOnePreview(f.path);
+  });
+  return sel;
+}
+
+/**
+ * 只重新预览一个文件 (用户改了它的编码之后)。
+ *
+ * 走 `files: [path]` 参数而不是整目录重扫: 大目录下改一个文件不该等全量扫描。
+ * 结果就地替换对应条目, 保留展开状态与滚动位置。
+ */
+async function refreshOnePreview(path) {
+  const item = [...document.querySelectorAll('#preview-list .pv-item')]
+    .find(el => el.dataset.path === path);
+  const wasOpen = item ? !item.querySelector('.pv-detail').hidden : false;
+
+  try {
+    const r = await invoke('preview_files', {
+      inputDir: state.inputDir,
+      recursive: $('recursive').checked,
+      sampleRows: PREVIEW_ROWS,
+      encodings: state.encodings,
+      files: [path],
+    });
+    const updated = (r.files || [])[0];
+    if (!updated) return;
+
+    const idx = state.previews.findIndex(f => f.path === path);
+    if (idx < 0) return;
+    state.previews[idx] = updated;
+
+    if (item) {
+      const fresh = buildPreviewItem(updated);
+      if (wasOpen) {
+        fresh.querySelector('.pv-detail').hidden = false;
+        fresh.querySelector('.pv-toggle').textContent = '折叠';
+      }
+      item.replaceWith(fresh);
+    } else {
+      renderPreviewList();
+    }
+    refreshPreviewSummary();
+    updateButtons();
+  } catch (e) {
+    appendLog(`[警告] 重新预览失败: ${e}`, 'failed');
+  }
+}
+
 /** 单个文件条目: 勾选框 + 文件名 + 大小 + 原始编码 + 状态, 展开后是表头与样例行 */
 function buildPreviewItem(f) {
   const item = document.createElement('div');
   item.className = 'pv-item';
+  item.dataset.path = f.path;
 
   const head = document.createElement('div');
   head.className = 'pv-head';
@@ -251,9 +348,7 @@ function buildPreviewItem(f) {
   size.textContent = formatBytes(f.size);
   head.appendChild(size);
 
-  const enc = document.createElement('span');
-  enc.className = 'pv-enc';
-  enc.textContent = f.encoding;
+  const enc = buildEncodingSelect(f);
   head.appendChild(enc);
 
   const tag = document.createElement('span');
@@ -391,6 +486,8 @@ async function startConversion() {
       options: buildOptions(),
       // 只转换勾选的文件
       files: [...state.selected],
+      // 用户手动指定的编码要一路带到转换阶段, 否则预览与产物会不一致
+      encodings: state.encodings,
     });
   } catch (e) {
     appendLog(`[错误] ${e}`, 'failed');

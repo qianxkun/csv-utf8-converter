@@ -183,11 +183,47 @@ select:focus {
 .pv-enc {
   flex-shrink: 0;
   font-size: 11px;
-  padding: 2px 8px;
+  /* 与原来的编码标签保持同一行高, 避免下拉框把整行撑高 */
+  height: 21px;
+  line-height: 19px;
+  padding: 0 22px 0 8px;
   border-radius: 3px;
   background: #2a3038;
   color: #9cdcfe;
   font-family: ui-monospace, Consolas, monospace;
+  /* 作为 <select>: 去掉原生外观, 与相邻的编码标签保持一致的视觉重量 */
+  border: 1px solid transparent;
+  cursor: pointer;
+  max-width: 160px;
+  appearance: none;
+  -webkit-appearance: none;
+  /* 自绘下拉箭头 (原生箭头在深色背景下几乎看不见) */
+  background-image: linear-gradient(45deg, transparent 50%, #7f8794 50%),
+    linear-gradient(135deg, #7f8794 50%, transparent 50%);
+  background-position: calc(100% - 12px) calc(50% + 1px), calc(100% - 8px) calc(50% + 1px);
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+
+.pv-enc:hover {
+  border-color: #3d4552;
+}
+
+.pv-enc:focus {
+  outline: none;
+  border-color: #4a7fb5;
+}
+
+/* 被手动覆盖时高亮, 提醒用户这里的值不是探测结果 */
+.pv-enc.overridden {
+  color: #dcdcaa;
+  border-color: #6b5a2e;
+  background-color: #33301f;
+}
+
+.pv-enc option {
+  background: #1a1d23;
+  color: #d4d4d4;
 }
 
 .pv-tag {

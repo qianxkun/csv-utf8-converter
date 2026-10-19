@@ -46,6 +46,70 @@ impl DetectedEncoding {
             Self::Unsupported => "Unsupported",
         }
     }
+
+    /// 前端下拉框使用的稳定标识 (与展示名解耦, 改名不影响前后端契约)
+    pub fn id(&self) -> &'static str {
+        match self {
+            Self::Utf8 => "utf8",
+            Self::Utf8Bom => "utf8bom",
+            Self::Gb18030 => "gb18030",
+            Self::Big5 => "big5",
+            Self::ShiftJis => "shift_jis",
+            Self::EucKr => "euc_kr",
+            Self::Windows1252 => "windows1252",
+            Self::Utf16Le => "utf16le",
+            Self::Utf16Be => "utf16be",
+            Self::Unsupported => "unsupported",
+        }
+    }
+
+    /// `id()` 的逆运算; 未知标识返回 `None` (调用方忽略该覆盖项)
+    pub fn from_id(s: &str) -> Option<Self> {
+        Some(match s {
+            "utf8" => Self::Utf8,
+            "utf8bom" => Self::Utf8Bom,
+            "gb18030" => Self::Gb18030,
+            "big5" => Self::Big5,
+            "shift_jis" => Self::ShiftJis,
+            "euc_kr" => Self::EucKr,
+            "windows1252" => Self::Windows1252,
+            "utf16le" => Self::Utf16Le,
+            "utf16be" => Self::Utf16Be,
+            _ => return None,
+        })
+    }
+
+    /// 是否已是 UTF-8 家族 (BOM 与否都算)
+    pub fn is_utf8(&self) -> bool {
+        matches!(self, Self::Utf8 | Self::Utf8Bom)
+    }
+
+    /// 界面上可供手动指定的全部编码 (顺序即下拉框顺序)
+    pub const SELECTABLE: [DetectedEncoding; 9] = [
+        DetectedEncoding::Utf8,
+        DetectedEncoding::Utf8Bom,
+        DetectedEncoding::Gb18030,
+        DetectedEncoding::Big5,
+        DetectedEncoding::ShiftJis,
+        DetectedEncoding::EucKr,
+        DetectedEncoding::Windows1252,
+        DetectedEncoding::Utf16Le,
+        DetectedEncoding::Utf16Be,
+    ];
+}
+
+/// 检测编码; `forced` 为 `Some` 时跳过探测直接采用 (用户在界面上手动指定)。
+///
+/// 无论是否强制, 都返回已 seek 到 0 的文件句柄, 调用方可以直接读取。
+pub fn open_with(
+    path: &Path,
+    probe_size: usize,
+    forced: Option<DetectedEncoding>,
+) -> std::io::Result<(DetectedEncoding, File)> {
+    match forced {
+        Some(enc) => Ok((enc, File::open(path)?)),
+        None => detect(path, probe_size),
+    }
 }
 
 /// 检测文件编码, 返回 (编码, 已 seek 回 0 的文件句柄)
@@ -155,4 +219,45 @@ fn read_full(file: &mut File, buf: &mut [u8]) -> std::io::Result<usize> {
         total += n;
     }
     Ok(total)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn id_roundtrips_for_every_selectable_encoding() {
+        for enc in DetectedEncoding::SELECTABLE {
+            assert_eq!(
+                DetectedEncoding::from_id(enc.id()),
+                Some(enc),
+                "{} 的 id `{}` 无法还原",
+                enc.name(),
+                enc.id()
+            );
+        }
+    }
+
+    #[test]
+    fn selectable_list_covers_every_mapped_encoding() {
+        // 除 Unsupported 外, 所有能映射到 encoding_rs 的编码都应可手动指定
+        for enc in DetectedEncoding::SELECTABLE {
+            assert!(crate::converter::encoding_of(enc).is_some());
+        }
+    }
+
+    #[test]
+    fn unknown_id_is_rejected() {
+        assert_eq!(DetectedEncoding::from_id("gbk"), None, "别名不参与契约");
+        assert_eq!(DetectedEncoding::from_id(""), None);
+        assert_eq!(DetectedEncoding::from_id("unsupported"), None);
+    }
+
+    #[test]
+    fn utf8_family_detection() {
+        assert!(DetectedEncoding::Utf8.is_utf8());
+        assert!(DetectedEncoding::Utf8Bom.is_utf8());
+        assert!(!DetectedEncoding::Gb18030.is_utf8());
+        assert!(!DetectedEncoding::Utf16Le.is_utf8());
+    }
 }

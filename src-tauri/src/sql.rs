@@ -17,6 +17,7 @@ use serde::Serialize;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Instant;
 
 /// 需要**转码**为 UTF-8 后再查询的文本类扩展名.
@@ -37,7 +38,8 @@ const EXT_PLATFORM: &str = "windows_amd64";
 
 /// 应用启动时自动 LOAD 的 DuckDB extension 列表.
 ///
-/// 物理文件位于 `<src-tauri>/tools/duckdb-extensions/v1.5.6/windows_amd64/<name>.duckdb_extension`.
+/// 物理文件位于 `<resource_dir>/duckdb-extensions/v1.5.6/windows_amd64/<name>.duckdb_extension`
+/// (开发期为 `<src-tauri>/tools/duckdb-extensions/...`)。
 /// 版本目录必须与本 crate 捆绑的 DuckDB API 版本严格一致 (见 `duckdb.h` 的
 /// `DUCKDB_API_VERSION_MAJOR/MINOR/PATCH` = 1/5/6), 否则 LOAD 会因版本校验失败.
 ///
@@ -46,13 +48,16 @@ const EXT_PLATFORM: &str = "windows_amd64";
 ///
 /// 注: 缺失或 LOAD 失败时静默跳过 (退化为按需联网 INSTALL), 结果记录在
 /// [`preload_extensions`] 返回的报告中, 便于上层判断离线可用性.
+///
+/// **刻意不含 `encodings`**: 本项目的管线是「先转码成 UTF-8 再交给 DuckDB」,
+/// DuckDB 侧永远只见 UTF-8, 该扩展从未被用到; 而它单文件 177 MB,
+/// 占全部扩展载荷的 48%. `tests/eval_drop_encodings.rs` 验证过删除不影响功能.
 const PRELOAD_EXTENSIONS: &[&str] = &[
     "json",
     "parquet",
     "icu",
     "httpfs",
     "fts",
-    "encodings",
     "excel",
     "spatial",
 ];
@@ -433,6 +438,49 @@ fn prepend_bom(path: &Path) -> Result<()> {
     Ok(())
 }
 
+// ===================== 扩展目录 =====================
+
+/// 预置扩展目录 (运行时由 `run()` 注入)。
+///
+/// **不能**再用 `env!("CARGO_MANIFEST_DIR")`: 那是编译期常量, 会写死构建机路径,
+/// 装到别人机器上必然找不到 (表现为静默退化为联网 INSTALL, 离线时直接失败)。
+static EXT_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// 由应用启动流程注入扩展目录; 重复调用忽略 (只认第一次)。
+pub fn set_ext_dir(dir: PathBuf) {
+    let _ = EXT_DIR.set(dir);
+}
+
+/// 当前生效的扩展目录; 未注入时回退到开发期路径 (便于 `cargo test` / `tauri dev`)。
+fn ext_dir() -> PathBuf {
+    if let Some(d) = EXT_DIR.get() {
+        return d.clone();
+    }
+    dev_ext_dir()
+}
+
+/// 开发期路径: `<src-tauri>/tools/duckdb-extensions/<version>/<platform>`
+fn dev_ext_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tools")
+        .join("duckdb-extensions")
+        .join(EXT_VERSION)
+        .join(EXT_PLATFORM)
+}
+
+/// 按候选目录依次探测, 返回第一个真实存在的扩展目录。
+///
+/// 打包后优先用 `resource_dir()/duckdb-extensions`; 开发期回退到 `src-tauri/tools/...`。
+pub fn resolve_ext_dir(candidates: impl IntoIterator<Item = PathBuf>) -> PathBuf {
+    for base in candidates {
+        let dir = base.join(EXT_VERSION).join(EXT_PLATFORM);
+        if dir.is_dir() {
+            return dir;
+        }
+    }
+    dev_ext_dir()
+}
+
 // ===================== 启动时预加载 extension =====================
 /// 加载项目内预下载的 DuckDB extensions, 实现离线 SQL.
 ///
@@ -440,11 +488,7 @@ fn prepend_bom(path: &Path) -> Result<()> {
 /// (退化为按需联网 INSTALL), 但会把原因回报给调用方, 避免"静默降级"
 /// 导致用户直到查询报错才发现离线不可用.
 fn preload_extensions(conn: &Connection) -> Vec<ExtensionStatus> {
-    let ext_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tools")
-        .join("duckdb-extensions")
-        .join(EXT_VERSION)
-        .join(EXT_PLATFORM);
+    let ext_dir = ext_dir();
 
     let mut report = Vec::with_capacity(PRELOAD_EXTENSIONS.len());
     if !ext_dir.is_dir() {
@@ -578,6 +622,7 @@ fn ensure_utf8(path: &Path, cache_dir: Option<&Path>) -> Result<(PathBuf, Transc
         write_bom: false,
         retries: 1,
         skip_utf8: false,
+        forced_encoding: None,
     };
     convert(path, &out, &opts).with_context(|| {
         format!(

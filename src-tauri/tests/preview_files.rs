@@ -5,7 +5,9 @@
 //! - 表头与前 N 行数据被正确解析 (中文不乱码)
 //! - 已是 UTF-8 的文件不标记为需转码
 
+use csv_utf8_converter_lib::detector::DetectedEncoding;
 use csv_utf8_converter_lib::preview;
+use std::collections::HashMap;
 use std::fs;
 
 /// 用进程号隔离临时目录, 避免并行测试互相干扰
@@ -30,7 +32,7 @@ fn previews_detect_encoding_and_parse_header_and_rows() {
     fs::write(dir.join("utf8.csv"), "a,b\n1,2\n3,4\n").expect("写入 utf8.csv");
 
     let files = vec![dir.join("gbk.csv"), dir.join("utf8.csv")];
-    let result = preview::build(&dir, files, 5, 65536);
+    let result = preview::build(&dir, files, 5, 65536, &HashMap::new());
 
     assert_eq!(result.count, 2);
     assert_eq!(result.needs_transcode, 1, "只有 GBK 文件需要转码");
@@ -62,6 +64,44 @@ fn previews_detect_encoding_and_parse_header_and_rows() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// 用户手动指定编码时: 生效编码取指定值, 自动探测结果仍然回报, 且判定随之变化。
+#[test]
+fn forced_encoding_overrides_detection_and_is_reported() {
+    let dir = temp_dir("preview-forced");
+
+    let gbk_text = "姓名,城市\n张三,北京\n";
+    let (gbk_bytes, _, had_errors) = encoding_rs::GB18030.encode(gbk_text);
+    assert!(!had_errors);
+    let path = dir.join("gbk.csv");
+    fs::write(&path, &gbk_bytes).expect("写入 gbk.csv");
+
+    // 1) 不指定: 自动探测为 GB18030
+    let auto = preview::build(&dir, vec![path.clone()], 5, 65536, &HashMap::new());
+    let a = &auto.files[0];
+    assert_eq!(a.encoding, "GB18030");
+    assert_eq!(a.encoding_id, "gb18030");
+    assert!(!a.overridden);
+    assert!(a.needs_transcode);
+
+    // 2) 强制按 UTF-8 解读: 生效编码变了, 不再"需转码", 中文必然变成替换字符
+    let mut overrides = HashMap::new();
+    overrides.insert(path.clone(), DetectedEncoding::Utf8);
+
+    let forced = preview::build(&dir, vec![path.clone()], 5, 65536, &overrides);
+    let f = &forced.files[0];
+    assert_eq!(f.encoding, "UTF-8");
+    assert_eq!(f.encoding_id, "utf8");
+    assert_eq!(f.encoding_auto, "GB18030", "自动探测结果仍要回报给界面");
+    assert!(f.overridden);
+    assert!(!f.needs_transcode, "指定为 UTF-8 后不应再标记需转码");
+    assert!(
+        f.headers.join("").contains('\u{FFFD}'),
+        "把 GBK 字节当 UTF-8 解会出现替换字符 (反过来 UTF-8 当 GB18030 解则是乱码而非替换字符)"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn preview_respects_sample_rows_limit_and_subdirectories() {
     let dir = temp_dir("preview-sub");
@@ -75,7 +115,7 @@ fn preview_respects_sample_rows_limit_and_subdirectories() {
     fs::write(dir.join("sub").join("many.csv"), text).expect("写入 many.csv");
 
     let files = vec![dir.join("sub").join("many.csv")];
-    let result = preview::build(&dir, files, 3, 65536);
+    let result = preview::build(&dir, files, 3, 65536, &HashMap::new());
 
     let f = &result.files[0];
     // 相对路径保留子目录 (用 Path 比较, 避免平台分隔符差异)

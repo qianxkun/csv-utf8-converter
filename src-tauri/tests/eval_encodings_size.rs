@@ -2,6 +2,10 @@
 //!
 //! 磁盘代价另计 (168.9 MB / 占预置扩展总量 46%).
 //! 这里只测"多 LOAD 一个扩展"带来的连接建立开销, 用于说明去掉它的收益边界.
+//!
+//! **已归档**: 结论已采纳 (`encodings` 已从 PRELOAD_EXTENSIONS 与仓库中移除),
+//! 该测试依赖已删除的扩展文件, 因此标记 `#[ignore]`。需要复测时先按
+//! `install_all.rs` 的方式把 encodings 下载回来。
 
 use std::path::PathBuf;
 
@@ -39,6 +43,7 @@ fn load(names: &[&str]) -> u128 {
 }
 
 #[test]
+#[ignore = "encodings 扩展已从仓库移除; 需要复测时先下载回来"]
 fn measure_encodings_load_cost() {
     // 预热: 让文件进入系统缓存, 避免首次读盘干扰
     for _ in 0..2 {

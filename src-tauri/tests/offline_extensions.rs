@@ -1,10 +1,13 @@
-//! 离线扩展验证: 确认 8 个预置 DuckDB extension 全部能从项目目录 LOAD, 且**不联网**.
+//! 离线扩展验证: 确认预置的 DuckDB extension 全部能从项目目录 LOAD, 且**不联网**.
 //!
 //! 验证点:
-//! 1. 8 个扩展文件存在于 `tools/duckdb-extensions/<ver>/<platform>/`
+//! 1. 每个扩展文件都存在于 `tools/duckdb-extensions/<ver>/<platform>/`
 //! 2. 每个都能按绝对路径 LOAD 成功 (版本与本 crate 捆绑的 DuckDB 匹配)
 //! 3. LOAD 后关键函数真的可用 (不只是 LOAD 返回 Ok)
 //! 4. 全程离线: 禁网时依旧成功
+//!
+//! 注: `encodings` 已被移除 (177 MB, 占载荷 48%, 而本项目管线永远只让 DuckDB 见 UTF-8).
+//! 见 `eval_drop_encodings.rs`.
 //!
 //! 运行: `cargo test --test offline_extensions -- --nocapture`
 //!
@@ -14,16 +17,7 @@
 use std::path::PathBuf;
 
 /// 与 sql.rs 中 PRELOAD_EXTENSIONS 保持一致
-const EXPECTED: &[&str] = &[
-    "json",
-    "parquet",
-    "icu",
-    "httpfs",
-    "fts",
-    "encodings",
-    "excel",
-    "spatial",
-];
+const EXPECTED: &[&str] = &["json", "parquet", "icu", "httpfs", "fts", "excel", "spatial"];
 
 const EXT_VERSION: &str = "v1.5.6";
 const EXT_PLATFORM: &str = "windows_amd64";
@@ -143,11 +137,6 @@ fn loaded_extensions_actually_work() {
         (
             "fts",
             "SELECT count(*)::VARCHAR FROM duckdb_extensions() WHERE extension_name='fts' AND loaded",
-            "1",
-        ),
-        (
-            "encodings",
-            "SELECT count(*)::VARCHAR FROM duckdb_extensions() WHERE extension_name='encodings' AND loaded",
             "1",
         ),
         (

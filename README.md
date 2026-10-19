@@ -37,6 +37,7 @@ DuckDB SQL 编辑器（`Ctrl+Enter` 执行）、常用查询预设按钮，以�
 - **转码前预览**（`preview.rs`）：先扫描并列出匹配到的文件，每个文件展示**原始编码**、大小、**是否需要转码**；展开后可查看**表头 + 4 行样例数据**（文件不足 4 行时按实际行数）、嗅探出的分隔符与列数，用来判断该文件是否真的需要转码。
   - 只读取文件头部 **64 KB**，预览耗时与文件大小基本无关（4 GB 文件同样是毫秒级）。
   - 最多展示 **30 列**、单元格文本截断到 **120 字符**（超宽表仅提示"仅显示前 30 列"）。
+  - **原始编码可手动纠正**：每个文件的编码是一个下拉框，默认「自动（探测结果）」；短文件或混合编码文件探测有误时，可直接改选 GB18030 / Big5 / UTF-16 等，**预览与后续转换都会按你选的编码执行**，不会出现"预览对了、转换还是错的"。
   - 提供「**仅选需转码** / 全选 / 全不选 / 全部展开 / 全部折叠」批量操作。
 - **按勾选转换**：只对勾选的文件执行转换，**默认自动勾选"需转码"的文件**（已是 UTF-8 的不必重复处理）；未勾选的文件不会被处理。
 - **统一输出格式**：通过界面「输出格式」选择，所有文件一律输出为 **UTF-8 CSV** 或 **Parquet**（输出扩展名随之变为 `.csv` / `.parquet`，与输入扩展名无关）：
@@ -63,7 +64,8 @@ DuckDB SQL 编辑器（`Ctrl+Enter` 执行）、常用查询预设按钮，以�
 - 支持多文件通配、多表 JOIN、分组统计等 DuckDB 完整方言；界面内置「基础查询 / 分组统计 / 多文件通配 / 多表 JOIN / Parquet / Parquet 通配」示例按钮，`Ctrl+Enter` 执行。
 - 结果表格预览（默认截断到 1000 行），可将结果**导出为 CSV（可选 BOM）或 Parquet**（导出时会重新全量执行 SQL，不受预览截断影响）。
 - 转码结果缓存为 `utf8_<原文件名>`，**默认放在数据文件所在目录**（如 `订单.csv` → `utf8_订单.csv`），也可在界面**手动指定统一的缓存目录**（此时按源文件路径哈希分子目录，避免同名冲突）；按源文件 `mtime` 判断是否过期，重复查询几乎零成本。**已是 UTF-8 的文件直接读取，不转码、不产生缓存。** 缓存不再写入系统临时目录。
-- **离线可用**：预置 8 个 DuckDB 扩展（`json` / `parquet` / `icu` / `httpfs` / `fts` / `encodings` / `excel` / `spatial`），断网也能加载。
+- **离线可用**：预置 7 个 DuckDB 扩展（`json` / `parquet` / `icu` / `httpfs` / `fts` / `excel` / `spatial`），随安装包一起分发，断网也能加载。
+
 
 ---
 
@@ -167,7 +169,7 @@ cargo test
 | 测试                                                  | 作用                              |
 | --------------------------------------------------- | ------------------------------- |
 | `preview_files.rs`                                  | 文件预览端到端（真实 GBK 文件的编码识别 / 表头 / 样例行） |
-| `offline_extensions.rs`                             | 验证 8 个 DuckDB 扩展可**离线**加载并可用     |
+| `offline_extensions.rs`                             | 验证 7 个 DuckDB 扩展可**离线**加载并可用     |
 | `sql_e2e.rs`                                        | SQL 查询端到端                       |
 | `parquet_query.rs` / `repro_parquet.rs`             | Parquet 读取 / 复现                 |
 | `export_test.rs` / `export_demo.rs`                 | 导出 CSV / Parquet                |
@@ -178,7 +180,14 @@ cargo test
 
 ## 离线 DuckDB 扩展
 
-应用启动时会从 `src-tauri/tools/duckdb-extensions/<版本>/<平台>/` 按**绝对路径**加载 8 个扩展。
+应用启动时会按**绝对路径**加载 7 个扩展：
+
+| 运行方式 | 扩展目录 |
+|---|---|
+| 安装后 | `<安装目录>\resources\tools\duckdb-extensions\<版本>\<平台>\` |
+| 开发期 | `src-tauri/tools/duckdb-extensions/<版本>/<平台>/` |
+
+路径在 `run()` 的 `setup` 中通过 `app.path().resource_dir()` 解析后注入 `sql.rs`（`set_ext_dir`），开发期回退到 `CARGO_MANIFEST_DIR`。**不要**改回在编译期用 `env!("CARGO_MANIFEST_DIR")` 拼路径——那会把构建机的绝对路径写死进二进制，装到别人机器上必然找不到。
 
 - 版本目录必须与 `duckdb-rs` 捆绑的 DuckDB API 版本严格一致（当前 `v1.5.6` / `windows_amd64`），否则 `LOAD` 会因版本校验失败。
 - 若扩展缺失或加载失败，会**静默降级**为按需联网 `INSTALL`（结果记录在预加载报告中，见 `sql.rs`）。
@@ -188,8 +197,9 @@ cargo test
 1. 运行 `cargo test --test install_all`（走 DuckDB 官方 `INSTALL`，需联网）；
 2. 从 `%USERPROFILE%\.duckdb\extensions\v1.5.6\windows_amd64\` 复制 `.duckdb_extension` 文件到 `src-tauri/tools/duckdb-extensions/v1.5.6/windows_amd64/`。
 
-> **注意**：`tools/duckdb-extensions/` 约 365 MB，其中单个 `.duckdb_extension` 最大约 168 MB，超过 GitHub 单文件 100 MB 限制，
-> 因此由 **Git LFS** 托管（规则见 `.gitattributes`）。克隆后若扩展文件仍是 133 字节的指针文件，执行 `git lfs pull` 恢复真实二进制。
+> **注意**：`tools/duckdb-extensions/` 约 196 MB，由 **Git LFS** 托管（规则见 `.gitattributes`）。克隆后若扩展文件仍是 133 字节的指针文件，执行 `git lfs pull` 恢复真实二进制。
+>
+> `encodings` 扩展已于 v0.1.0 移除（177 MB，占原载荷 48%，功能上从未被使用）。若确需恢复：`INSTALL encodings;` 后按上面第 2 步复制回来，并把它加回 `sql.rs` 的 `PRELOAD_EXTENSIONS`。
 
 ---
 

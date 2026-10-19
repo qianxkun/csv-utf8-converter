@@ -13,6 +13,7 @@
 //! - 复用 `converter::encoding_of` 的编码映射 (与转换阶段完全一致)
 //! - 极简 RFC4180 解析, 支持引号包裹 / `""` 转义 / 引号内换行
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
@@ -37,8 +38,14 @@ pub struct FilePreview {
     /// 相对输入目录的路径 (界面展示用)
     pub relative_path: String,
     pub size: u64,
-    /// 检测到的原始编码显示名
+    /// 生效的原始编码显示名 (被手动指定时即为指定值)
     pub encoding: String,
+    /// 生效编码的稳定标识 (前端下拉框回填用)
+    pub encoding_id: String,
+    /// 自动探测得到的编码显示名 (无论是否被覆盖都返回, 供界面提示)
+    pub encoding_auto: String,
+    /// 该文件的编码是否来自用户手动指定
+    pub overridden: bool,
     /// 是否为非 UTF-8 编码 (即"需要转码")
     pub needs_transcode: bool,
     /// 嗅探出的分隔符 (原样字符, 如 `,` `\t`)
@@ -65,15 +72,26 @@ pub struct PreviewResult {
 }
 
 /// 并行生成每个文件的预览
+///
+/// `overrides` 为用户手动指定的编码 (键为文件绝对路径), 命中时跳过自动探测结果。
 pub fn build(
     input_root: &Path,
     files: Vec<PathBuf>,
     sample_rows: usize,
     probe_size: usize,
+    overrides: &HashMap<PathBuf, DetectedEncoding>,
 ) -> PreviewResult {
     let items: Vec<FilePreview> = files
         .par_iter()
-        .map(|p| preview_one(p, input_root, sample_rows, probe_size))
+        .map(|p| {
+            preview_one(
+                p,
+                input_root,
+                sample_rows,
+                probe_size,
+                overrides.get(p).copied(),
+            )
+        })
         .collect();
 
     let needs_transcode = items.iter().filter(|f| f.needs_transcode).count();
@@ -88,11 +106,15 @@ pub fn build(
 }
 
 /// 生成单个文件的预览; 任何失败都折叠进 `error` 字段而不中断整体扫描
+///
+/// `forced` 为用户手动指定的编码: 生效编码取它, 但仍会跑一次自动探测,
+/// 以便界面能同时显示「你指定的是 X, 自动探测认为是 Y」。
 fn preview_one(
     path: &Path,
     input_root: &Path,
     sample_rows: usize,
     probe_size: usize,
+    forced: Option<DetectedEncoding>,
 ) -> FilePreview {
     let relative_path = path
         .strip_prefix(input_root)
@@ -102,12 +124,41 @@ fn preview_one(
     let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     let abs_path = path.display().to_string();
 
+    // 自动探测始终执行: 即使被覆盖, 也要把探测结果回报给界面
+    let (auto, mut src_file) = match detect(path, probe_size) {
+        Ok(v) => v,
+        Err(e) => {
+            return FilePreview {
+                path: abs_path,
+                relative_path,
+                size,
+                encoding: "?".to_string(),
+                encoding_id: String::new(),
+                encoding_auto: "?".to_string(),
+                overridden: forced.is_some(),
+                needs_transcode: false,
+                delimiter: String::new(),
+                headers: Vec::new(),
+                rows: Vec::new(),
+                columns_truncated: false,
+                error: Some(format!("{:#}", e)),
+            }
+        }
+    };
+
+    let effective = forced.unwrap_or(auto);
+    let overridden = forced.is_some();
+    let needs_transcode = !effective.is_utf8();
+
     // 统一的失败构造, 避免多处重复
-    let failed = |encoding: String, error: String| FilePreview {
+    let failed = |error: String| FilePreview {
         path: abs_path.clone(),
         relative_path: relative_path.clone(),
         size,
-        encoding,
+        encoding: effective.name().to_string(),
+        encoding_id: effective.id().to_string(),
+        encoding_auto: auto.name().to_string(),
+        overridden,
         needs_transcode: false,
         delimiter: String::new(),
         headers: Vec::new(),
@@ -116,19 +167,8 @@ fn preview_one(
         error: Some(error),
     };
 
-    let (detected, mut src_file) = match detect(path, probe_size) {
-        Ok(v) => v,
-        Err(e) => return failed("?".to_string(), format!("{:#}", e)),
-    };
-
-    let needs_transcode = !matches!(
-        detected,
-        DetectedEncoding::Utf8 | DetectedEncoding::Utf8Bom
-    );
-    let encoding = detected.name().to_string();
-
-    let Some(enc) = encoding_of(detected) else {
-        return failed(encoding, "不支持的编码, 无法预览".to_string());
+    let Some(enc) = encoding_of(effective) else {
+        return failed("不支持的编码, 无法预览".to_string());
     };
 
     let (text, truncated) = read_prefix(&mut src_file, enc, PREVIEW_READ_BYTES);
@@ -138,7 +178,10 @@ fn preview_one(
         path: abs_path,
         relative_path,
         size,
-        encoding,
+        encoding: effective.name().to_string(),
+        encoding_id: effective.id().to_string(),
+        encoding_auto: auto.name().to_string(),
+        overridden,
         needs_transcode,
         delimiter: parsed.delimiter.to_string(),
         headers: parsed.headers,
