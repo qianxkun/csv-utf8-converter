@@ -26,9 +26,10 @@ walkdir = "2"
 anyhow = "1"
 glob = "0.3"
 # duckdb: 最新 1.10506.0 (bundled)。其捆绑的 DuckDB API 版本 (v1.5.6) 必须与
-# tools/duckdb-extensions/v1.5.6/windows_amd64/ 下预置的 8 个扩展严格一致,
+# tools/duckdb-extensions/v1.5.6/windows_amd64/ 下预置的 7 个扩展严格一致,
 # 否则 LOAD 会因版本校验失败 (见 sql.rs 的 EXT_VERSION)。若日后升级到更高的
-# DuckDB API 版本, 需重跑 src-tauri/tests/install_all.rs 重新下载对应扩展 (~365MB)。
+# DuckDB API 版本, 需重跑 src-tauri/tests/install_all.rs 重新下载对应扩展 (~196MB)。
+# 注意: encodings 扩展已移除 (177MB, 本项目管线只让 DuckDB 见 UTF-8, 从未使用), 勿加回。
 duckdb = { version = "1.10506", features = ["bundled"] }
 
 [profile.release]

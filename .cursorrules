@@ -1,0 +1,31 @@
+# 项目强制工作规范（旧版 Cursor / 通用 .cursorrules 读取器）
+
+完整规范见根目录 `AGENTS.md`。以下红线为硬约束。
+
+- Tauri 2 + Rust 2021（MSRV 1.90）；后端 `src-tauri/src/`；前端 `dist/` 原生 HTML/CSS/JS，无构建步骤。
+- 注释用中文，解释「为什么」。
+
+## 禁止
+
+1. 用全局 Git 身份提交 —— 必须项目级 `qianxkun <qianxkun@163.com>`。
+2. 提交 `.workbuddy-ai/`、`target/`、`testdata/`、`utf8_*` 缓存。
+3. 直接 `git add` 添加 `*.duckdb_extension`（走 Git LFS）；删除现有扩展二进制。
+4. 运行时代码用 `env!("CARGO_MANIFEST_DIR")` 拼路径。
+5. 新增/恢复 `encodings` 扩展。
+6. 用 `Decoder::decode_to_string(..., last = false)` 解码文件内容。
+7. 在 `detector` / `converter` 之外另写编码映射；让预览与转换用不同编码来源。
+8. 引入 npm / vite / webpack / TypeScript 构建链。
+9. 把 `bundle.windows.wix.language` 改回 `en-US`。
+10. 未实际验证就声称完成。
+11. force-push / `reset --hard` / 改写已推送历史（需授权）。
+12. 留下 `zz_probe_*` 探针文件或调试输出。
+
+## 必须
+
+- 编码一律先转 UTF-8 再交给 DuckDB；不要用 `read_csv(encoding=...)` 直读（`big5` 会静默解错）。
+- `forced_encoding` 同时传给 `preview_files` 与 `start_conversion`。
+- 文件 IO 不用 `unwrap()` / `expect()`，用 `anyhow::Result`。
+- 批量处理用 `rayon::par_iter`，单文件失败折叠进 `error` 字段，不中断整批。
+- 前端用户数据用 `textContent`，不用 `innerHTML`。
+- 改了 `dist/` 必须重新 `cargo tauri build`（资源编译期内嵌）。
+- 改完跑：`cargo check --all-targets`、`cargo test --lib`、`node --check dist/main.js`。

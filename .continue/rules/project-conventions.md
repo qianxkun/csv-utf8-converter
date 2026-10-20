@@ -1,0 +1,51 @@
+---
+name: project-conventions
+alwaysApply: true
+---
+
+# 项目强制工作规范
+
+完整规范见仓库根目录 **`AGENTS.md`**（「§2 红线」为硬约束）。本文件是摘要。
+
+## 项目事实
+
+- Tauri 2 + Rust 2021（MSRV 1.90）。后端 `src-tauri/src/`，前端 `dist/`（原生 HTML/CSS/JS，**无构建步骤**）。
+- 前端调用：`window.__TAURI__.core.invoke('cmd', { camelCaseArgs })`。
+- 注释用中文，解释「为什么」。
+
+## 禁止
+
+1. 用全局 Git 身份提交 —— 必须项目级 `qianxkun <qianxkun@163.com>`。
+2. 提交 `.workbuddy-ai/`、`target/`、`testdata/`、`utf8_*` 缓存。
+3. 直接 `git add` 添加 `*.duckdb_extension`（走 Git LFS）；删除现有扩展二进制。
+4. 运行时代码用 `env!("CARGO_MANIFEST_DIR")` 拼路径。
+5. 新增/恢复 `encodings` 扩展。
+6. 用 `Decoder::decode_to_string(..., last = false)` 解码文件内容。
+7. 在 `detector` / `converter` 之外另写编码映射；让预览与转换用不同编码来源。
+8. 引入 npm / vite / webpack / TypeScript 构建链。
+9. 把 `bundle.windows.wix.language` 改回 `en-US`。
+10. 未实际验证就声称完成。
+11. force-push / `reset --hard` / 改写已推送历史（需授权）。
+12. 留下 `zz_probe_*` 探针文件或调试输出。
+
+## 编码管线不变量
+
+```
+detect() → DetectedEncoding → encoding_of() → &'static Encoding
+                  └→ id() → 前端下拉 → forced_encoding → 预览 & 转换
+```
+
+- `DetectedEncoding` 唯一枚举、`encoding_of()` 唯一映射、`id()` / `from_id()` 唯一标识。
+- 一律先转 UTF-8 再交给 DuckDB；`read_csv(encoding='big5')` 会静默解错且不报错。
+
+## 必须执行
+
+```bash
+bash scripts/check-conventions.sh
+cd src-tauri && cargo check --all-targets
+cargo test --lib
+cargo test --test preview_files --test forced_encoding
+cd .. && node --check dist/main.js
+```
+
+改了 `dist/` 或 `tauri.conf.json` → 重新 `cargo tauri build`。

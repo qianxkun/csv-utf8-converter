@@ -1,0 +1,12 @@
+# Aider 配置
+# 规范正文在 AGENTS.md, CONVENTIONS.md 只是索引; 两者一并读入。
+read:
+  - AGENTS.md
+  - CONVENTIONS.md
+
+# 本仓库要求项目级提交身份, 已在 .git/config 中配置;
+# 不要用全局身份 (麻书博 <mashubo@norinaviation.com>) 覆盖。
+# 修改前先确认: git config user.email
+
+# 不自动提交, 便于人工审阅 AI 改动
+auto-commits: false

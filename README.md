@@ -203,6 +203,43 @@ cargo test
 
 ---
 
+## AI 协作规范
+
+本仓库对 AI 编码工具设有**强制工作规范**，唯一真源是根目录的 [`AGENTS.md`](AGENTS.md)。
+
+各工具只放最小适配层（复述红线 + 指回主规范），规范正文不在多处重复维护：
+
+| 工具 | 入口文件 |
+|---|---|
+| 通用 / Codex / 多数新工具 | `AGENTS.md` |
+| Claude Code | `CLAUDE.md`（`@AGENTS.md` 导入） |
+| Cursor | `.cursor/rules/00-project-conventions.mdc`、`.cursorrules` |
+| GitHub Copilot | `.github/copilot-instructions.md` |
+| Gemini CLI | `GEMINI.md` |
+| Windsurf | `.windsurf/rules/project-conventions.md` |
+| Cline / Roo Code | `.clinerules/00-project-conventions.md` |
+| Continue | `.continue/rules/project-conventions.md` |
+| Aider | `CONVENTIONS.md` + `.aider.conf.yml` |
+| Zed | `.rules` |
+| JetBrains Junie | `.junie/guidelines.md` |
+| Amazon Q Developer | `.amazonq/rules/project-conventions.md` |
+
+规范里最需要注意的是「§2 红线」与「§4 已知陷阱」——后者记录了本项目实际踩过的坑
+（编译期路径写死、WiX 代码页、flex 裁剪、流式解码截断、DuckDB 编码名静默错解等），
+每条都写明了症状与正确做法。修改 `AGENTS.md` 后，若红线条目有增减，需同步更新各适配文件。
+
+红线中可自动检查的部分已脚本化，**提交前必须通过**：
+
+```bash
+bash scripts/check-conventions.sh
+```
+
+覆盖：提交身份、禁提交路径、扩展 LFS 规则、`encodings` 是否被加回、流式解码截断、
+扩展目录是否退回编译期路径、WiX 语言与 `resources`、版本号同步、前后端编码 id 一致性、
+探针文件与 `dbg!` 残留。退出码非 0 即存在违规。
+
+---
+
 ## 许可证
 
 本项目基于 [MIT License](LICENSE) 开源，版权所有 (c) 2026 qianxkun。
