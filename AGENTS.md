@@ -316,6 +316,7 @@ sql::set_ext_dir(sql::resolve_ext_dir(candidates));  // candidates 首选 resour
 | 改了 `dist/` 但安装包没变 | 前端资源编译期内嵌 | 重新 `cargo tauri build` |
 | `git lfs migrate import` 卡住不动 | 交互式询问 `override changes?` | `yes \| git lfs migrate import ...` |
 | LFS 迁移后工作区只剩 133 字节文件 | 只迁了索引，未检出实体 | `git lfs checkout` |
+| `bash: $'\r': command not found`，脚本无法执行 | Windows `core.autocrlf=true` 把 `.sh` checkout 成 CRLF | `.gitattributes` 固定 `*.sh text eol=lf` |
 | `curl` 报 `CRYPT_E_NO_REVOCATION_CHECK` | Windows schannel 吊销检查 | 加 `--ssl-no-revoke` |
 
 ---
