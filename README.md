@@ -214,15 +214,13 @@ cargo test
 | 通用 / Codex / Cursor / Windsurf / Cline | `AGENTS.md`（这些工具原生读根目录本文件） |
 | Claude Code | `CLAUDE.md`（`@AGENTS.md` 导入） |
 | GitHub Copilot | `.github/copilot-instructions.md` |
-| Aider（可选） | `.aider.conf.yml`（`read: AGENTS.md`） |
-| Zed（可选） | `.rules` |
 
-根目录只保留两个必需的适配入口（`CLAUDE.md`、`.github/copilot-instructions.md`）；
+根目录只保留两个适配入口（`CLAUDE.md`、`.github/copilot-instructions.md`）；
 Codex / Cursor / Windsurf / Cline 直接读 `AGENTS.md`，不需要适配层。
-`GEMINI.md`、`CONVENTIONS.md`、`.cursorrules` 及 `.cursor/`、`.windsurf/`、`.clinerules/`、
-`.gemini/`、`.continue/`、`.junie/`、`.amazonq/` 均已删除：前三个是红线副本，
-中间三个对应的工具原生读 `AGENTS.md`，最后四个对应的工具本项目不使用。
-细节见 `AGENTS.md` §7「根目录布局」。
+其余适配文件与目录（`GEMINI.md`、`CONVENTIONS.md`、`.cursorrules`、`.rules`、`.aider.conf.yml`
+以及 `.cursor/`、`.windsurf/`、`.clinerules/`、`.gemini/`、`.continue/`、`.junie/`、`.amazonq/`）
+均已删除：其中 Cursor / Windsurf / Cline 的适配层是被 `AGENTS.md` 替代的，
+其余对应的工具本项目不使用。细节见 `AGENTS.md` §7「根目录布局」。
 
 规范里最需要注意的是「§2 红线」与「§4 已知陷阱」——后者记录了本项目实际踩过的坑
 （编译期路径写死、WiX 代码页、flex 裁剪、流式解码截断、DuckDB 编码名静默错解等），

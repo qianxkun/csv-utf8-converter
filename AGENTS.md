@@ -408,22 +408,21 @@ stat -c '%s  %n' src-tauri/target/release/bundle/nsis/*.exe \
 所以「收进 `docs/ai/`」这条路不存在：**这些路径只能留或删，不能挪**。
 移走后工具会**静默读不到规范且不报错**，这是最难发现的一类失效。
 
-当前根目录的 AI 入口：
+当前根目录的 AI 入口只剩三个：
 
 | 位置 | 工具 | 状态 |
 |---|---|---|
 | `AGENTS.md` | 跨工具事实标准（Codex / Cursor / Windsurf / Cline 等原生读取） | ✅ 唯一真源 |
 | `CLAUDE.md` | Claude Code | ✅ 保留（`@AGENTS.md` + 红线摘要） |
 | `.github/copilot-instructions.md` | GitHub Copilot | ✅ 保留（在 `.github/` 内，不占根目录） |
-| `.rules` | Zed | ⚪ 可选项，不用 Zed 即可删 |
-| `.aider.conf.yml` | Aider | ⚪ 可选项，不用 Aider 即可删 |
 
-**已删除，不要重新添加**：
+**已删除的适配文件，不要重新添加**：
 
-- `GEMINI.md` → Gemini CLI 改用 `.gemini/settings.json` 的 `context.fileName: ["AGENTS.md"]` 指路。
-  注意键名必须是 `context.fileName`（旧的扁平键 `contextFileName` 已从官方文档移除），写错会静默不加载。
-- `CONVENTIONS.md` → Aider 在 `.aider.conf.yml` 里写 `read: AGENTS.md` 即可，无需单独文件。
+- `GEMINI.md` → Gemini CLI 需 `.gemini/settings.json` 的 `context.fileName: ["AGENTS.md"]` 指路
+  （该目录已删，见下）。注意键名必须是 `context.fileName`，旧的扁平键 `contextFileName` 已从官方文档移除。
+- `CONVENTIONS.md` → Aider 在 `.aider.conf.yml` 里写 `read: AGENTS.md` 即可（该文件已删，见下）。
 - `.cursorrules` → Cursor 已弃用该文件。
+- `.rules`（Zed）、`.aider.conf.yml`（Aider）→ 本项目不使用这两个工具，已删除。
 
 **已删除的适配目录 —— 工具原生读根目录本文件**（2026-10 核实官方文档）：
 
@@ -437,7 +436,12 @@ stat -c '%s  %n' src-tauri/target/release/bundle/nsis/*.exe \
 
 `.gemini/`、`.continue/`、`.junie/`、`.amazonq/`。若要重新启用其中某个，**必须重建它自己的配置目录**
 —— 光有 `AGENTS.md` 它不会读：`.amazonq/` 只认 `project-root/.amazonq/rules`，
-`.continue/` 只认 `.continue/rules/`，Gemini 需要 `.gemini/settings.json` 显式指路。
+`.continue/` 只认 `.continue/rules/`，Gemini 需要 `.gemini/settings.json` 显式指路，
+Aider 需要 `.aider.conf.yml`，Zed 需要 `.rules`。
+
+> **新增工具时**：先查该工具的官方文档确认它是否原生读 `AGENTS.md`。
+> 若原生支持就**不要建适配文件**；若不支持，再建最小适配层，并同步更新本表与
+> `scripts/check-conventions.sh` 的 I4 列表（否则脚本会把新文件判成"违规副本"）。
 
 删除理由不是「根目录难看」，而是这些都是 `AGENTS.md` §2 红线的**复制**：
 复制必然漂移（`.cursorrules` 的「改完跑」清单就漏了 `scripts/check-conventions.sh`）。

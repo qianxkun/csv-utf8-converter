@@ -164,9 +164,9 @@ else
 fi
 
 DUP=""
-# 这些路径都已删除: 前三个是 §2 红线的副本, 后七个是已移除的适配层/目录。
+# 这些路径都已删除: 前五个是 §2 红线的副本/适配文件, 后七个是已移除的适配目录。
 # 重新出现意味着有人在恢复「多份规范」, 必须先改 AGENTS.md §7 再更新本列表。
-for f in GEMINI.md CONVENTIONS.md .cursorrules \
+for f in GEMINI.md CONVENTIONS.md .cursorrules .rules .aider.conf.yml \
          .cursor .windsurf .clinerules .gemini .continue .junie .amazonq; do
   [ -e "$f" ] && DUP="$DUP $f"
 done
@@ -185,11 +185,6 @@ if [ -n "$MISS_ENTRY" ]; then
 else
   ok "必需入口齐全（CLAUDE.md / copilot-instructions.md）"
 fi
-
-# 可选入口: 不用 Aider / Zed 时可以删, 因此只提示不判失败
-for f in .rules .aider.conf.yml; do
-  [ -f "$f" ] && warn "$f 存在（可选入口，不用对应工具可删）"
-done
 
 # ---------------------------------------------------------------- 汇总
 echo
