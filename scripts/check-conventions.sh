@@ -153,6 +153,46 @@ else
   ok "无 dbg!()"
 fi
 
+# ---------------------------------------------------------------- I4 规范入口
+# 各 AI 工具入口路径多为硬编码: 文件缺失或被"整理"到别处时, 工具不会报错,
+# 只是静默读不到规范 —— 这是最难发现的失效, 所以单独校验。
+head_ "I4  AI 规范入口"
+if [ -f AGENTS.md ]; then
+  ok "唯一真源 AGENTS.md 存在"
+else
+  no "缺少 AGENTS.md（所有工具的唯一真源）"
+fi
+
+DUP=""
+# 前三个是红线副本; 后三个目录对应的工具已原生读 AGENTS.md, 保留适配层只会重新引入漂移
+for f in GEMINI.md CONVENTIONS.md .cursorrules .cursor .windsurf .clinerules; do
+  [ -e "$f" ] && DUP="$DUP $f"
+done
+if [ -n "$DUP" ]; then
+  no "以下路径是 AGENTS.md 红线的副本（已删除，勿加回）：$DUP"
+else
+  ok "无重复的规范副本"
+fi
+
+MISS_ENTRY=""
+for f in CLAUDE.md .rules .aider.conf.yml .github/copilot-instructions.md; do
+  [ -f "$f" ] || MISS_ENTRY="$MISS_ENTRY $f"
+done
+if [ -n "$MISS_ENTRY" ]; then
+  no "缺少硬编码入口（对应工具将静默读不到规范）：$MISS_ENTRY"
+else
+  ok "硬编码入口齐全（CLAUDE.md / .rules / .aider.conf.yml / copilot-instructions.md）"
+fi
+
+# Gemini 靠 context.fileName 指向主规范; 键名写错(如旧版 contextFileName)会静默不加载
+if [ ! -f .gemini/settings.json ]; then
+  no "缺少 .gemini/settings.json（Gemini CLI 会退回读取已删除的 GEMINI.md）"
+elif grep -q '"fileName"' .gemini/settings.json && grep -q '"AGENTS.md"' .gemini/settings.json; then
+  ok ".gemini/settings.json 经 context.fileName 指向 AGENTS.md"
+else
+  no ".gemini/settings.json 未用 context.fileName 指向 AGENTS.md（Gemini 将读不到规范）"
+fi
+
 # ---------------------------------------------------------------- 汇总
 echo
 if [ "$FAIL" -eq 0 ]; then

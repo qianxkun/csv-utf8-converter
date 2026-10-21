@@ -211,18 +211,21 @@ cargo test
 
 | 工具 | 入口文件 |
 |---|---|
-| 通用 / Codex / 多数新工具 | `AGENTS.md` |
+| 通用 / Codex / Cursor / Windsurf / Cline | `AGENTS.md`（这些工具原生读根目录本文件） |
 | Claude Code | `CLAUDE.md`（`@AGENTS.md` 导入） |
-| Cursor | `.cursor/rules/00-project-conventions.mdc`、`.cursorrules` |
 | GitHub Copilot | `.github/copilot-instructions.md` |
-| Gemini CLI | `GEMINI.md` |
-| Windsurf | `.windsurf/rules/project-conventions.md` |
-| Cline / Roo Code | `.clinerules/00-project-conventions.md` |
+| Gemini CLI | `.gemini/settings.json`（`context.fileName` 指向 `AGENTS.md`） |
 | Continue | `.continue/rules/project-conventions.md` |
-| Aider | `CONVENTIONS.md` + `.aider.conf.yml` |
+| Aider | `.aider.conf.yml`（`read: AGENTS.md`） |
 | Zed | `.rules` |
 | JetBrains Junie | `.junie/guidelines.md` |
 | Amazon Q Developer | `.amazonq/rules/project-conventions.md` |
+
+根目录只保留**工具硬编码、无法移动**的入口（`AGENTS.md`、`CLAUDE.md`、`.rules`、`.aider.conf.yml`）。
+`GEMINI.md`、`CONVENTIONS.md`、`.cursorrules` 及 `.cursor/`、`.windsurf/`、`.clinerules/` 已删除：
+前三个是 `AGENTS.md` 红线的副本（且已开始漂移），后三个对应的工具原生读 `AGENTS.md`。
+`.gemini/`、`.continue/`、`.junie/`、`.amazonq/` 保留，因为官方文档未提供 `AGENTS.md` 替代方案。
+细节见 `AGENTS.md` §7「根目录布局」。
 
 规范里最需要注意的是「§2 红线」与「§4 已知陷阱」——后者记录了本项目实际踩过的坑
 （编译期路径写死、WiX 代码页、flex 裁剪、流式解码截断、DuckDB 编码名静默错解等），

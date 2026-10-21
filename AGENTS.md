@@ -2,10 +2,13 @@
 
 > 本文件是本仓库对**所有 AI 编码工具**的唯一规范来源（single source of truth）。
 >
-> 仓库根目录下各工具的适配文件（`CLAUDE.md`、`.cursor/rules/`、`.github/copilot-instructions.md`、
-> `.windsurf/rules/`、`.clinerules/`、`.continue/rules/`、`GEMINI.md`、`.junie/`、`.amazonq/rules/`、
-> `CONVENTIONS.md`、`.rules`）**只做两件事**：复述下方「§2 红线」、指回本文件。
+> 仓库里各工具的适配文件（`CLAUDE.md`、`.github/copilot-instructions.md`、`.continue/rules/`、
+> `.junie/`、`.amazonq/rules/`、`.rules`、`.gemini/settings.json`、`.aider.conf.yml`）
+> **只做两件事**：复述下方「§2 红线」、指回本文件。
 > **规范正文只在 `AGENTS.md` 维护**，不要在适配文件里另写一套。
+>
+> Cursor / Windsurf / Cline 已原生读本文件，**不再保留适配层**。
+> 各入口为什么必须在根目录、哪些已删除，见 **§7「根目录布局」**。
 
 ---
 
@@ -399,3 +402,44 @@ stat -c '%s  %n' src-tauri/target/release/bundle/nsis/*.exe \
 工具版本号（除非构成硬约束）。
 
 修改本文件后，若「§2 红线」条目有增减，需同步更新各工具适配文件中的红线摘要表。
+
+### 根目录布局（为什么有的能挪、有的不能）
+
+各 AI 工具对入口路径的处理方式不同：**能配置的已统一指向 `AGENTS.md`，硬编码的只能留在根目录**。
+不要为了「整洁」擅自移动下表标 ❌ 的文件 —— 移走后工具会**静默读不到规范且不报错**，
+这是最难发现的一类失效。
+
+| 位置 | 工具 | 可移动性 |
+|---|---|---|
+| `AGENTS.md` | 跨工具事实标准（Codex 等） | ❌ 根目录硬编码 |
+| `CLAUDE.md` | Claude Code | ❌ 根目录硬编码（内容 = `@AGENTS.md` + 红线摘要） |
+| `.rules` | Zed | ❌ 根目录硬编码 |
+| `.aider.conf.yml` | Aider | ❌ 根目录硬编码（但内部 `read:` 可指向任意路径） |
+| `.github/copilot-instructions.md` | GitHub Copilot | ❌ 由 GitHub 约定 |
+| `.gemini/settings.json` | Gemini CLI | ✅ 用 `context.fileName` 指向 `AGENTS.md` |
+| `.continue/rules/`、`.junie/`、`.amazonq/rules/` | 各自工具 | ❌ 目录名硬编码（已在点目录内，不占根目录） |
+
+> Cursor / Windsurf / Cline **不在此表**：它们原生读根目录本文件，适配层已删除，见下。
+
+**已合并删除，不要重新添加**：
+
+- `GEMINI.md` → 改由 `.gemini/settings.json` 的 `context.fileName: ["AGENTS.md"]` 指定。
+  注意键名是 `context.fileName`（`contextFileName` 已从官方文档移除），写错会导致规范静默不加载。
+- `CONVENTIONS.md` → `.aider.conf.yml` 的 `read:` 直接指向 `AGENTS.md`。
+- `.cursorrules` → Cursor 已弃用该文件。
+
+**已删除整个目录（工具原生读本文件，2026-10 核实官方文档）**：
+
+| 目录 | 依据 | 前提 |
+|---|---|---|
+| `.cursor/rules/` | Cursor 文档把 `AGENTS.md` 列为规则类型：「simple alternative to `.cursor/rules`」，支持项目根目录 | Cursor 较新版本 |
+| `.windsurf/rules/` | Windsurf/Devin 文档：根目录 `AGENTS.md` **always-on**，`.windsurf/rules` 仅为 legacy fallback | — |
+| `.clinerules/` | Cline v3.37.0 起支持 `AGENTS.md` | Cline ≥ 3.37.0 |
+
+**刻意保留**（不是漏删）：`.gemini/` 是让 Gemini 认 `AGENTS.md` 的指针，删掉会退回读已不存在的
+`GEMINI.md`；`.continue/` 与 `.amazonq/` 官方文档未提供 `AGENTS.md` 支持；`.junie/` 未查证，
+不做「可能静默失效」的删除。
+
+删除理由不是「根目录难看」，而是这些都是 `AGENTS.md` §2 红线的**复制**：
+复制必然漂移（`.cursorrules` 的「改完跑」清单就漏了 `scripts/check-conventions.sh`）。
+**同一份规则只允许存在一处正文。**
