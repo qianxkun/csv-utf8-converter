@@ -214,17 +214,14 @@ cargo test
 | 通用 / Codex / Cursor / Windsurf / Cline | `AGENTS.md`（这些工具原生读根目录本文件） |
 | Claude Code | `CLAUDE.md`（`@AGENTS.md` 导入） |
 | GitHub Copilot | `.github/copilot-instructions.md` |
-| Gemini CLI | `.gemini/settings.json`（`context.fileName` 指向 `AGENTS.md`） |
-| Continue | `.continue/rules/project-conventions.md` |
-| Aider | `.aider.conf.yml`（`read: AGENTS.md`） |
-| Zed | `.rules` |
-| JetBrains Junie | `.junie/guidelines.md` |
-| Amazon Q Developer | `.amazonq/rules/project-conventions.md` |
+| Aider（可选） | `.aider.conf.yml`（`read: AGENTS.md`） |
+| Zed（可选） | `.rules` |
 
-根目录只保留**工具硬编码、无法移动**的入口（`AGENTS.md`、`CLAUDE.md`、`.rules`、`.aider.conf.yml`）。
-`GEMINI.md`、`CONVENTIONS.md`、`.cursorrules` 及 `.cursor/`、`.windsurf/`、`.clinerules/` 已删除：
-前三个是 `AGENTS.md` 红线的副本（且已开始漂移），后三个对应的工具原生读 `AGENTS.md`。
-`.gemini/`、`.continue/`、`.junie/`、`.amazonq/` 保留，因为官方文档未提供 `AGENTS.md` 替代方案。
+根目录只保留两个必需的适配入口（`CLAUDE.md`、`.github/copilot-instructions.md`）；
+Codex / Cursor / Windsurf / Cline 直接读 `AGENTS.md`，不需要适配层。
+`GEMINI.md`、`CONVENTIONS.md`、`.cursorrules` 及 `.cursor/`、`.windsurf/`、`.clinerules/`、
+`.gemini/`、`.continue/`、`.junie/`、`.amazonq/` 均已删除：前三个是红线副本，
+中间三个对应的工具原生读 `AGENTS.md`，最后四个对应的工具本项目不使用。
 细节见 `AGENTS.md` §7「根目录布局」。
 
 规范里最需要注意的是「§2 红线」与「§4 已知陷阱」——后者记录了本项目实际踩过的坑

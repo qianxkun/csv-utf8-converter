@@ -164,34 +164,32 @@ else
 fi
 
 DUP=""
-# 前三个是红线副本; 后三个目录对应的工具已原生读 AGENTS.md, 保留适配层只会重新引入漂移
-for f in GEMINI.md CONVENTIONS.md .cursorrules .cursor .windsurf .clinerules; do
+# 这些路径都已删除: 前三个是 §2 红线的副本, 后七个是已移除的适配层/目录。
+# 重新出现意味着有人在恢复「多份规范」, 必须先改 AGENTS.md §7 再更新本列表。
+for f in GEMINI.md CONVENTIONS.md .cursorrules \
+         .cursor .windsurf .clinerules .gemini .continue .junie .amazonq; do
   [ -e "$f" ] && DUP="$DUP $f"
 done
 if [ -n "$DUP" ]; then
-  no "以下路径是 AGENTS.md 红线的副本（已删除，勿加回）：$DUP"
+  no "以下路径是已删除的规范副本/适配层（勿加回，需要时先改 AGENTS.md §7）：$DUP"
 else
   ok "无重复的规范副本"
 fi
 
 MISS_ENTRY=""
-for f in CLAUDE.md .rules .aider.conf.yml .github/copilot-instructions.md; do
+for f in CLAUDE.md .github/copilot-instructions.md; do
   [ -f "$f" ] || MISS_ENTRY="$MISS_ENTRY $f"
 done
 if [ -n "$MISS_ENTRY" ]; then
-  no "缺少硬编码入口（对应工具将静默读不到规范）：$MISS_ENTRY"
+  no "缺少必需的适配入口（对应工具将静默读不到规范）：$MISS_ENTRY"
 else
-  ok "硬编码入口齐全（CLAUDE.md / .rules / .aider.conf.yml / copilot-instructions.md）"
+  ok "必需入口齐全（CLAUDE.md / copilot-instructions.md）"
 fi
 
-# Gemini 靠 context.fileName 指向主规范; 键名写错(如旧版 contextFileName)会静默不加载
-if [ ! -f .gemini/settings.json ]; then
-  no "缺少 .gemini/settings.json（Gemini CLI 会退回读取已删除的 GEMINI.md）"
-elif grep -q '"fileName"' .gemini/settings.json && grep -q '"AGENTS.md"' .gemini/settings.json; then
-  ok ".gemini/settings.json 经 context.fileName 指向 AGENTS.md"
-else
-  no ".gemini/settings.json 未用 context.fileName 指向 AGENTS.md（Gemini 将读不到规范）"
-fi
+# 可选入口: 不用 Aider / Zed 时可以删, 因此只提示不判失败
+for f in .rules .aider.conf.yml; do
+  [ -f "$f" ] && warn "$f 存在（可选入口，不用对应工具可删）"
+done
 
 # ---------------------------------------------------------------- 汇总
 echo
